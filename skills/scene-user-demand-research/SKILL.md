@@ -1,6 +1,8 @@
 ---
 name: scene-user-demand-research
-description: Design, execute, audit, and synthesize large-scale evidence-led research that connects user roles, scenes, tasks, substitutes, frictions, consequences, solution acceptance, and commercial demand. Use when a user asks for 场景-用户-需求研究, 大规模用户反馈/评论/论坛/工单/电商数据挖掘, open-ended scenario discovery, anti-survivorship-bias sampling, cross-platform demand analysis, evidence grading, or a reusable crawling-to-opportunity research pipeline. Also use to review whether an existing user-research dataset can support product, trend, segment, or willingness-to-pay conclusions.
+description: Run auditable user research and demand discovery with the SURE protocol. Use for user-demand research, customer discovery, voice-of-customer analysis, review or forum mining, Jobs-to-be-Done evidence, cross-platform feedback synthesis, anti-survivorship-bias sampling, evidence grading, opportunity validation, willingness-to-pay analysis, or auditing whether a dataset supports product decisions. Connects user roles, scenes, tasks, substitutes, frictions, consequences, and E0–E5 evidence. 中文触发：用户研究、需求研究、场景研究、评论挖掘、行业研究、证据分级、机会验证。
+license: MIT
+compatibility: Works with Agent Skills hosts. Internet access is required only when collecting public or user-authorized sources.
 ---
 
 # Scene–User–Demand Research
