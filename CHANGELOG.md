@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-08-12
+
+- Separated untrusted source content from Agent control instructions.
+- Added explicit prompt-injection handling for comments, transcripts, exports, and other third-party research data.
+
 ## 1.0.0 — 2026-08-12
 
 - Published SURE in the standard `skills/scene-user-demand-research` layout for cross-agent discovery.
