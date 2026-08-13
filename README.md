@@ -30,7 +30,10 @@ python3 skills/user-demand-research/scripts/validate_study.py examples/sample-st
 
 使用 GitHub CLI：
 
+需要 GitHub CLI 2.90.0 或更高版本；`gh skill` 当前处于 Public Preview。若本地没有该子命令，请先升级 GitHub CLI。安装前可以先预览 Skill 内容：
+
 ```bash
+gh skill preview roy-tong/user-demand-research user-demand-research
 gh skill install roy-tong/user-demand-research user-demand-research --agent codex --scope user
 ```
 
