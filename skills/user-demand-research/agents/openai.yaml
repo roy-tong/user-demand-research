@@ -1,0 +1,4 @@
+interface:
+  display_name: "User Demand Research (SURE)"
+  short_description: "Turn user feedback into auditable demand evidence"
+  default_prompt: "Use $user-demand-research to audit the evidence for this product-demand claim and design the next falsification test."

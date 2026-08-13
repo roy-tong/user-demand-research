@@ -1,4 +1,0 @@
-interface:
-  display_name: "场景—用户—需求研究"
-  short_description: "用大规模反馈建立可审计的场景、用户、需求与商业证据链"
-  default_prompt: "Use $scene-user-demand-research to design and run an evidence-led scene–user–demand study for my product."

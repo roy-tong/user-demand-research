@@ -1,0 +1,9 @@
+{
+  "decision": "Whether to test a mobile home-check device with remote pet owners",
+  "target_users": ["People who leave a pet alone at home for four or more hours"],
+  "markets": ["Illustrative urban consumer sample"],
+  "time_window": "Synthetic fixture; no population inference",
+  "allowed_sources": ["Synthetic interview excerpts", "Synthetic behavior records"],
+  "prohibited_inferences": ["Market size", "Population prevalence", "Price elasticity"],
+  "stopping_rules": ["Stop if privacy rejection dominates the intended use", "Stop after one opportunity-card audit"]
+}

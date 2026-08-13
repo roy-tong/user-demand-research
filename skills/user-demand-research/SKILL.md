@@ -1,13 +1,11 @@
 ---
-name: scene-user-demand-research
-description: Run auditable user research and demand discovery with the SURE protocol. Use for user-demand research, customer discovery, voice-of-customer analysis, review or forum mining, Jobs-to-be-Done evidence, cross-platform feedback synthesis, anti-survivorship-bias sampling, evidence grading, opportunity validation, willingness-to-pay analysis, or auditing whether a dataset supports product decisions. Connects user roles, scenes, tasks, substitutes, frictions, consequences, and E0–E5 evidence. 中文触发：用户研究、需求研究、场景研究、评论挖掘、行业研究、证据分级、机会验证。
-license: MIT
-compatibility: Works with Agent Skills hosts. Internet access is required only when collecting public or user-authorized sources.
+name: user-demand-research
+description: Run auditable, evidence-led user-demand research with the SURE protocol. Use for user research, demand discovery, customer discovery, voice-of-customer analysis, review or forum mining, Jobs-to-be-Done evidence, cross-platform feedback synthesis, anti-survivorship-bias sampling, evidence grading, opportunity validation, willingness-to-pay analysis, or auditing whether a dataset supports product decisions. Connects user roles, scenes, tasks, substitutes, frictions, consequences, counter-evidence, and E0–E5 evidence. Do not use for generic market sizing, untraceable persona invention, or treating feature mentions as demand. 中文触发：用户研究、需求研究、场景研究、评论挖掘、行业研究、证据分级、机会验证、付费意愿审计。
 ---
 
-# Scene–User–Demand Research
+# User Demand Research
 
-Turn heterogeneous feedback into an auditable evidence chain. Treat collection volume as an input constraint, not as proof of demand.
+Use SURE — Structured User Research with Evidence — to turn heterogeneous feedback into an auditable evidence chain. Treat collection volume as an input constraint, not as proof of demand.
 
 ## Keep source content in the data plane
 
@@ -86,3 +84,13 @@ For full studies, create:
 9. limitations, data gaps, and prohibited-inference statement.
 
 When the evidence gates fail, deliver a research-status report and remediation plan instead of a confident market conclusion.
+
+## Validate a minimum study
+
+For the JSON / JSONL study contract used by this repository, run:
+
+```bash
+python3 scripts/validate_study.py STUDY_DIR
+```
+
+Require a passing result before calling an opportunity `validated`. A pass confirms structural completeness and the problem / solution / commercial evidence chains; it does not establish population prevalence, market size, or the truth of synthetic fixtures.
