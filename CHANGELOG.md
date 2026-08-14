@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — 2026-08-13
+## 1.1.0 — 2026-08-14
 
 - Renamed the repository-facing product to `User Demand Research` and the canonical Skill to `user-demand-research`; SURE now expands clearly to Structured User Research with Evidence.
 - Added a no-network synthetic sample study and deterministic validator for research contracts, evidence records, opportunity cards, and three-chain validation.

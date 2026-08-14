@@ -6,7 +6,7 @@
 [![skills.sh](https://skills.sh/b/roy-tong/user-demand-research)](https://skills.sh/roy-tong/user-demand-research/user-demand-research)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-> 项目原名 `sure-user-demand-research`，Skill 原名 `scene-user-demand-research`。从 v0.3 起统一使用任务型名称 `user-demand-research`；SURE 保留为方法名。
+> 项目原名 `sure-user-demand-research`，Skill 原名 `scene-user-demand-research`。从 v1.1 起统一使用任务型名称 `user-demand-research`；SURE 保留为方法名。
 
 ## 30 秒得到第一个可验收结果
 
