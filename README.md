@@ -5,6 +5,7 @@
 [![Agent Skill](https://img.shields.io/badge/Agent_Skill-user--demand--research-111111)](skills/user-demand-research/SKILL.md)
 [![skills.sh](https://skills.sh/b/roy-tong/user-demand-research)](https://skills.sh/roy-tong/user-demand-research/user-demand-research)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/roy-tong/user-demand-research/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/user-demand-research/actions/workflows/tests.yml)
 
 > 项目原名 `sure-user-demand-research`，Skill 原名 `scene-user-demand-research`。从 v1.1 起统一使用任务型名称 `user-demand-research`；SURE 保留为方法名。
 
