@@ -96,6 +96,44 @@ python3 skills/user-demand-research/scripts/sure.py report ./studies/ai-glasses-
 
 `signals` 只计算可复核的分布与门槛差值（等级、角色、来源集中度、重复率、时间跨度、链条就绪度），语义层发现由 Agent 写入 `04-findings/insights.md` 并引用证据记录。`report` 把研究契约、来源计划、manifest 总量、信号、需求判断、被禁路线和解释边界汇编成中文报告；完整检查未通过时报告顶部保留失败横幅，结论只能停留在研究状态。
 
+## 研究"还没有名字的体验"（命名前研究）
+
+前沿产品面对的问题是：用户没有现成词汇描述你想研究的体验，关键词驱动的采样会悄悄研究成名的邻近市场，错过真实需求。`plan --mode unnamed-experience` 在标准流程前加一个接地阶段，把**词表和范围边界变成研究的产出而不是输入**：
+
+```bash
+python3 skills/user-demand-research/scripts/sure.py plan ./studies/unnamed-sensation \
+  --goal "一种尚未被产品化的体感体验" \
+  --region overseas --sample-size 30000 \
+  --platform-types forum,social \
+  --mode unnamed-experience
+```
+
+四条接地路径加上学科推演（完整方法见 [命名前研究参考](skills/user-demand-research/references/unnamed-experience-research.md)）：
+
+1. **边缘语言挖掘**：用户描述"说不清的新体验"时用的 proto-词（rumbly、thuddy、waves、tingling…）。在存量语料里量化每个词的产出量和接受度关联（E3+ 占比代理）。
+2. **替代行为考古**：用户为获得未产品化体验所做的 DIY/挪用行为——显示性偏好，是最硬的"需求化石"（E2，上市前最强的需求信号）。
+3. **心理物理维度框架**：用刺激的物理维度（频率/幅度/速度/温度/湿度/轨迹/节奏/接触面积）定义体验空间，标注现有产品覆盖，找用户已到达而产品未覆盖的白区。
+4. **跨域类比 + 文献锚点**：CT 愉悦触觉、振动愉悦频率、ASMR 触发分类等，只作 E0 语境和假设来源，绝不计作用户需求证据。
+
+该阶段产出 `01-sources/lexicon.csv`（设计门：≥5 个保留词、覆盖 ≥2 条路径）、`01-sources/experience-space.csv` 和范围边界；后续采集路线的检索式必须来自保留词表和未覆盖维度。
+
+然后按你的流程收口——先查存量、再定补采：
+
+```bash
+# 2) 基于词表检查存量数据是否充分（不足则返回 1，列出缺口词）
+python3 skills/user-demand-research/scripts/sure.py lexicon ./studies/unnamed-sensation --min-per-term 30
+
+# 3) 不足则按 plan 配额补采：plan 已按 3–5× 清洗折损记录 raw_target_estimate，
+#    保证清洗后的量（如上万条）匹配研究设计，而不是拿原始量充数
+
+# 4) 全量语料产出报告（含"命名前研究信号"小节：词表产出、需求化石数、充分性结论）
+python3 skills/user-demand-research/scripts/sure.py signals ./studies/unnamed-sensation
+python3 skills/user-demand-research/scripts/sure.py lexicon ./studies/unnamed-sensation --min-per-term 30
+python3 skills/user-demand-research/scripts/sure.py report ./studies/unnamed-sensation
+```
+
+该模式特有的偏误已写进参考文档：命名偏误（团队采用 proto-词后看什么都像）、化石幸存者偏误（DIY 帖子过度代表狂热者，需配对照路线）、维度实体化（维度图是透镜不是空间本身）、类比越界（文献人群不是你的市场）。
+
 ## 为一个真实问题建立研究目录
 
 下面的命令会生成一套能交给其他 Agent 继续工作的标准目录：

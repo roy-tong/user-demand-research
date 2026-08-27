@@ -592,5 +592,133 @@ class PlanSignalsReportTests(unittest.TestCase):
             self.assertIn("研究状态输出", text)
 
 
+class UnnamedExperienceTests(unittest.TestCase):
+    LEXICON_FIXTURE = (
+        "term,term_type,grounding_path,definition,source_anchor,expected_signal,status,notes\n"
+        "rumbly,proto_word,edge_language,low-frequency body-felt vibration word,thread-anchor,E1 problem language,candidate,\n"
+        "waves,proto_word,edge_language,slow rhythmic sensation metaphor,thread-anchor,E1 problem language,candidate,\n"
+        "tingling,proto_word,edge_language,light prickling sensation word,thread-anchor,E1 problem language,candidate,\n"
+        "shower-stream,behavior,substitute_behavior,DIY water stream for body sensation,diy-post,E2 substitute friction,candidate,\n"
+        "massage-gun,behavior,substitute_behavior,repurposed device for vibration,diy-post,E2 substitute friction,candidate,\n"
+        "vibration-frequency,dimension,psychophysical,stimulus frequency axis,paper-anchor,hypothesis frame,candidate,\n"
+    )
+
+    def test_plan_unnamed_mode_gates_the_lexicon_at_design(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "unnamed"
+            planned = run_cli(
+                "plan",
+                str(target),
+                "--goal",
+                "unnamed body sensation",
+                "--region",
+                "overseas",
+                "--sample-size",
+                "3000",
+                "--platform-types",
+                "forum",
+                "--mode",
+                "unnamed-experience",
+            )
+            self.assertEqual(0, planned.returncode, planned.stdout + planned.stderr)
+            study = json.loads((target / "study.json").read_text(encoding="utf-8"))
+            self.assertEqual("unnamed_experience", study["plan"]["mode"])
+            self.assertEqual(12000, study["plan"]["raw_target_estimate"])
+            self.assertTrue((target / "01-sources/lexicon.csv").is_file())
+            self.assertTrue((target / "01-sources/experience-space.csv").is_file())
+            self.assertIn("Phase 0 grounding", (target / "01-sources/tasks.md").read_text(encoding="utf-8"))
+
+            empty = run_cli("check", str(target), "--stage", "design")
+            self.assertEqual(1, empty.returncode)
+            empty_payload = json.loads(empty.stdout)
+            lexicon_check = next(
+                item for item in empty_payload["checks"] if item["id"] == "lexicon_grounding"
+            )
+            self.assertEqual("fail", lexicon_check["status"])
+            self.assertIn("below the required 5", lexicon_check["detail"])
+
+            (target / "01-sources/lexicon.csv").write_text(self.LEXICON_FIXTURE, encoding="utf-8")
+            (target / "01-sources/experience-space.csv").write_text(
+                "dimension,range_low,range_high,unit,covered_by_existing,coverage_note,evidence_refs\n"
+                "frequency,10,300,hz,no,no product coverage in corpus,\n",
+                encoding="utf-8",
+            )
+            filled = run_cli("check", str(target), "--stage", "design")
+            filled_payload = json.loads(filled.stdout)
+            lexicon_check = next(
+                item for item in filled_payload["checks"] if item["id"] == "lexicon_grounding"
+            )
+            self.assertEqual("pass", lexicon_check["status"])
+
+    def test_lexicon_reports_yield_fossils_and_sufficiency(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "sample"
+            shutil.copytree(SAMPLE, target)
+            (target / "01-sources/lexicon.csv").write_text(self.LEXICON_FIXTURE, encoding="utf-8")
+            evidence_path = target / "02-data/evidence.jsonl"
+            records = [json.loads(line) for line in evidence_path.read_text(encoding="utf-8").splitlines()]
+            records[0]["lexicon_terms"] = ["rumbly"]
+            records[0]["grounding_path"] = "edge_language"
+            records[2]["lexicon_terms"] = ["rumbly", "waves"]
+            records[2]["grounding_path"] = "edge_language"
+            records[5]["lexicon_terms"] = ["tingling"]
+            records[5]["grounding_path"] = "substitute_behavior"
+            evidence_path.write_text(
+                "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+                encoding="utf-8",
+            )
+
+            insufficient = run_cli("lexicon", str(target), "--min-per-term", "2")
+            self.assertEqual(1, insufficient.returncode)
+            payload = json.loads(insufficient.stdout)
+            self.assertEqual("insufficient", payload["sufficiency"]["status"])
+            self.assertIn("waves", payload["sufficiency"]["insufficient_terms"])
+            self.assertEqual(1, payload["demand_fossil_records"])
+            self.assertEqual(2, payload["terms"]["rumbly"]["records"])
+            self.assertIn("shower-stream", payload["zero_yield_terms"])
+            self.assertTrue((target / "04-findings/lexicon-yield.json").is_file())
+
+            relaxed = run_cli(
+                "lexicon",
+                str(target),
+                "--min-per-term",
+                "1",
+            )
+            self.assertEqual(1, relaxed.returncode)
+            self.assertIn(
+                "shower-stream", json.loads(relaxed.stdout)["sufficiency"]["insufficient_terms"]
+            )
+
+            (target / "01-sources/lexicon.csv").write_text(
+                "term,term_type,grounding_path,definition,source_anchor,expected_signal,status,notes\n"
+                "rumbly,proto_word,edge_language,low-frequency word,thread-anchor,E1,candidate,\n"
+                "waves,proto_word,edge_language,slow rhythmic metaphor,thread-anchor,E1,candidate,\n",
+                encoding="utf-8",
+            )
+            sufficient = run_cli("lexicon", str(target), "--min-per-term", "1")
+            self.assertEqual(0, sufficient.returncode)
+            self.assertEqual("sufficient", json.loads(sufficient.stdout)["sufficiency"]["status"])
+
+    def test_lexicon_without_lexicon_file_is_a_usage_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "sample"
+            shutil.copytree(SAMPLE, target)
+            completed = run_cli("lexicon", str(target))
+            self.assertEqual(2, completed.returncode)
+            self.assertIn("unnamed-experience", completed.stderr)
+
+    def test_report_includes_grounding_section_when_yield_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "sample"
+            shutil.copytree(SAMPLE, target)
+            (target / "01-sources/lexicon.csv").write_text(self.LEXICON_FIXTURE, encoding="utf-8")
+            run_cli("lexicon", str(target))
+            completed = run_cli("report", str(target))
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            text = (target / "06-report/report.md").read_text(encoding="utf-8")
+            self.assertIn("命名前研究信号", text)
+            self.assertIn("需求化石", text)
+
+
 if __name__ == "__main__":
     unittest.main()

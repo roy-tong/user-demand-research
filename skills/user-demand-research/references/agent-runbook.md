@@ -33,6 +33,8 @@ python3 scripts/sure.py plan /ABSOLUTE/PATH/TO/STUDY \
 
 `plan` resolves the region and platform types against `assets/platform-map.json` and the connector registry, enables only non-blocked platforms, allocates the sample across platforms and evidence roles, scales route targets, and writes `01-sources/feasibility.json` plus `01-sources/tasks.md`. Exit code 3 means no requested platform has an enabled connector: deliver the gap report, do not substitute a commercial service, merchant API, or login-based scraper. The plan output is a draft contract — section 3 review is still required.
 
+For a frontier experience users cannot yet name, add `--mode unnamed-experience`: complete the Phase 0 grounding tasks listed in `tasks.md` (edge-language mining, substitute-behavior archaeology, psychophysical dimension mapping, cross-domain anchors, first-principles derivation) until `lexicon.csv` passes the design gate, then derive route queries from the retained terms. Method details: [unnamed-experience-research.md](unnamed-experience-research.md).
+
 When the platform list is already known, use `init` directly:
 
 ```bash
@@ -179,6 +181,14 @@ Deterministic corpus signals are computed by the CLI, not estimated by the Agent
 ```bash
 python3 scripts/sure.py signals /ABSOLUTE/PATH/TO/STUDY
 ```
+
+For an unnamed-experience study, also compute lexicon yield and stock-corpus sufficiency — before deciding new collection, and again on the full corpus:
+
+```bash
+python3 scripts/sure.py lexicon /ABSOLUTE/PATH/TO/STUDY --min-per-term 30
+```
+
+Exit code 1 means the stock corpus is insufficient for some terms: collect through the planned routes at a size that survives cleaning. Do not loosen the minimum or relabel terms to pass.
 
 This writes `04-findings/signals.json` with level and role distributions, the role × level matrix, source-family concentration, duplicate rate, time spread, chain readiness, and gate deltas. Semantic findings (scene clusters, friction themes, cross-source patterns) belong in `04-findings/insights.md`, written by the Agent with evidence-record references — never merged into `signals.json`.
 

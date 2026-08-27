@@ -4,6 +4,7 @@
 
 0. Stage contract
 1. Research contract
+1A. Unnamed-experience grounding (frontier products)
 2. SURE unit of analysis
 3. Scenario-universe construction
 4. Sampling by evidence role
@@ -52,6 +53,10 @@ Use a question map with five layers:
 3. **Cost and consequence**: what time, money, cognitive load, risk, discomfort, rework, or lost outcome follows?
 4. **Solution response**: does the person accept, reject, modify, or ignore the proposed solution?
 5. **Commercial behavior**: who decides, pays, deploys, retains, returns, renews, or expands?
+
+## 1A. Unnamed-experience grounding (frontier products)
+
+When the studied experience has no settled vocabulary, keyword-driven sampling silently studies the adjacent named market instead. Run the grounding phase before route design: mine edge-language proto-words, excavate DIY/appropriation behaviors (E2 demand fossils — the hardest pre-market evidence), map the stimulus's psychophysical dimensions to find coverage white space, and anchor cross-domain analogies (CT pleasant touch, vibration pleasantness, ASMR) as E0 context only, plus first-principles derivation where literature is thin. The phase outputs a seed lexicon (`01-sources/lexicon.csv`, design-gated at ≥5 terms across ≥2 grounding paths) and the scope boundary; downstream queries must derive from them. Audit stock-corpus sufficiency per term with `sure.py lexicon` before sizing new collection — insufficiency is a collection instruction, not a gate to loosen. Full method: [unnamed-experience-research.md](unnamed-experience-research.md).
 
 ## 2. SURE unit of analysis
 

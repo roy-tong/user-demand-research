@@ -48,6 +48,17 @@ PLAN_ROLE_WEIGHTS = {
     "control": 0.10,
 }
 PLAN_MAX_PLATFORM_SHARE = 0.65
+PLAN_MODES = ("standard", "unnamed_experience")
+GROUNDING_PATHS = {
+    "edge_language",
+    "substitute_behavior",
+    "psychophysical",
+    "cross_domain",
+    "discipline",
+}
+LEXICON_TERM_TYPES = {"proto_word", "behavior", "dimension", "analogy", "discipline_term"}
+LEXICON_MIN_TERMS = 5
+LEXICON_MIN_PATHS = 2
 PLAN_PLATFORM_BIAS = {
     "reddit": "Subreddit self-selection and search ranking bias",
     "x": "Public-post reach bias; reposts are distribution, not demand",
@@ -1072,6 +1083,82 @@ def _check_design(audit: Audit, paths: dict[str, Path]) -> dict[str, Any] | None
             ),
             "design",
         )
+
+    plan_mode = ""
+    if isinstance(study, dict) and isinstance(study.get("plan"), dict):
+        plan_mode = str(study["plan"].get("mode", "standard"))
+    if plan_mode == "unnamed_experience":
+        lexicon_errors: list[str] = []
+        lexicon_path = paths["sources"].parent / "lexicon.csv"
+        lexicon_rows: list[dict[str, str]] = []
+        if not lexicon_path.is_file():
+            lexicon_errors.append("missing 01-sources/lexicon.csv")
+        else:
+            with lexicon_path.open(encoding="utf-8-sig", newline="") as handle:
+                lexicon_rows = list(csv.DictReader(handle))
+            valid_rows = [
+                row
+                for row in lexicon_rows
+                if all(
+                    str(row.get(column, "")).strip()
+                    for column in ("term", "term_type", "grounding_path", "expected_signal")
+                )
+            ]
+            unknown_paths = sorted(
+                {
+                    str(row.get("grounding_path", "")).strip()
+                    for row in valid_rows
+                }
+                - GROUNDING_PATHS
+            )
+            unknown_types = sorted(
+                {str(row.get("term_type", "")).strip() for row in valid_rows} - LEXICON_TERM_TYPES
+            )
+            if unknown_paths:
+                lexicon_errors.append("unknown grounding paths: " + ", ".join(unknown_paths))
+            if unknown_types:
+                lexicon_errors.append("unknown term types: " + ", ".join(unknown_types))
+            if len(valid_rows) < LEXICON_MIN_TERMS:
+                lexicon_errors.append(
+                    f"{len(valid_rows)} valid terms is below the required {LEXICON_MIN_TERMS}"
+                )
+            covered_paths = {
+                str(row.get("grounding_path", "")).strip() for row in valid_rows
+            } & GROUNDING_PATHS
+            if len(covered_paths) < LEXICON_MIN_PATHS:
+                lexicon_errors.append(
+                    f"{len(covered_paths)} grounding path(s) covered; at least "
+                    f"{LEXICON_MIN_PATHS} required"
+                )
+            if "psychophysical" in covered_paths:
+                space_path = paths["sources"].parent / "experience-space.csv"
+                if not space_path.is_file():
+                    lexicon_errors.append(
+                        "psychophysical path used but 01-sources/experience-space.csv is missing"
+                    )
+                else:
+                    with space_path.open(encoding="utf-8-sig", newline="") as handle:
+                        space_rows = [
+                            row
+                            for row in csv.DictReader(handle)
+                            if str(row.get("dimension", "")).strip()
+                        ]
+                    if not space_rows:
+                        lexicon_errors.append(
+                            "experience-space.csv has no stimulus dimensions"
+                        )
+        audit.metrics["lexicon_terms"] = len(lexicon_rows)
+        audit.add(
+            "lexicon_grounding",
+            "fail" if lexicon_errors else "pass",
+            "; ".join(lexicon_errors)
+            if lexicon_errors
+            else (
+                f"{len(lexicon_rows)} lexicon terms ground the study across "
+                f"{len({str(row.get('grounding_path', '')).strip() for row in lexicon_rows} & GROUNDING_PATHS)} paths"
+            ),
+            "design",
+        )
     return study if isinstance(study, dict) else None
 
 
@@ -2055,6 +2142,7 @@ def _platform_prerequisites(connector: dict[str, Any]) -> list[str]:
 
 def command_plan(args: argparse.Namespace) -> int:
     target = Path(args.study_dir).resolve()
+    args.mode = str(getattr(args, "mode", "standard") or "standard").replace("-", "_")
     if target.exists() and any(target.iterdir()):
         print(f"refusing to overwrite non-empty directory: {target}", file=sys.stderr)
         return 2
@@ -2202,10 +2290,12 @@ def command_plan(args: argparse.Namespace) -> int:
     gates["min_evidence_records"] = max(30, round(args.sample_size * 0.01))
     study["quality_gates"] = gates
     study["plan"] = {
+        "mode": args.mode,
         "goal": args.goal,
         "region": args.region,
         "market": args.market,
         "sample_target": args.sample_size,
+        "raw_target_estimate": args.sample_size * 4,
         "platform_types": requested_types,
         "planned_at": datetime.now(timezone.utc).isoformat(),
         "platform_quotas": platform_quotas,
@@ -2217,6 +2307,8 @@ def command_plan(args: argparse.Namespace) -> int:
         "notes": [
             "region and market are sampling context, not verified residence",
             "sample target is a collection ceiling, not a claim of independent users",
+            "raw intake estimate assumes a 3-5x reduction from date, completeness, "
+            "relevance, and dedup filters before records become claim eligible",
         ],
     }
     (target / "study.json").write_text(
@@ -2227,6 +2319,14 @@ def command_plan(args: argparse.Namespace) -> int:
         routes_csv = target / "01-sources" / f"{item['platform']}-routes.csv"
         _scale_route_targets(routes_csv, item["quota"])
     _write_planned_source_plan(target / "01-sources" / "source-plan.csv", platform_quotas)
+    if args.mode == "unnamed_experience":
+        for template_name, destination_name in (
+            ("lexicon-template.csv", "lexicon.csv"),
+            ("experience-space-template.csv", "experience-space.csv"),
+        ):
+            source = Path(__file__).resolve().parents[1] / "assets" / template_name
+            if source.is_file():
+                shutil.copyfile(source, target / "01-sources" / destination_name)
 
     feasibility = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -2269,6 +2369,23 @@ def command_plan(args: argparse.Namespace) -> int:
         f"- Feasible platforms: {', '.join(item['platform'] for item in enabled) or 'none'}",
         "",
     ]
+    if args.mode == "unnamed_experience":
+        tasks_lines.extend(
+            [
+                "## Phase 0 grounding (before route design)",
+                "",
+                "The studied experience has no settled name yet. Derive the scope and seed lexicon before writing queries:",
+                "",
+                "1. Edge-language mining: harvest proto-words from open-scene material; record each in `01-sources/lexicon.csv`.",
+                "2. Substitute-behavior archaeology: document DIY/appropriation behaviors and their costs (demand fossils, E2).",
+                "3. Psychophysical dimension mapping: fill `01-sources/experience-space.csv` with stimulus dimensions and coverage marks.",
+                "4. Cross-domain analogy + literature anchors: record anchor claims with explicit bridges; E0 context only.",
+                "5. First-principles derivation: terminate every chain in observable behaviors or expressions.",
+                "",
+                "Gate: lexicon.csv needs at least 5 retained terms across at least 2 grounding paths; experience-space.csv is required when the psychophysical path is used. Downstream route queries must derive from the retained lexicon and uncovered dimensions. Method details: `references/unnamed-experience-research.md`.",
+                "",
+            ]
+        )
     for item in enabled:
         tasks_lines.extend(
             [
@@ -2315,6 +2432,7 @@ def command_plan(args: argparse.Namespace) -> int:
 
     summary = {
         "status": "planned" if enabled else "planned_without_feasible_platforms",
+        "mode": args.mode,
         "study_dir": str(target),
         "study_id": study_id,
         "goal": args.goal,
@@ -2480,6 +2598,137 @@ def command_signals(args: argparse.Namespace) -> int:
     payload = dict(signals)
     payload["signals_file"] = str(output)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_lexicon(args: argparse.Namespace) -> int:
+    root = Path(args.study_dir).resolve()
+    lexicon_path = root / "01-sources" / "lexicon.csv"
+    if not lexicon_path.is_file():
+        print(
+            f"missing {lexicon_path}; run plan --mode unnamed-experience and ground the lexicon first",
+            file=sys.stderr,
+        )
+        return 2
+    with lexicon_path.open(encoding="utf-8-sig", newline="") as handle:
+        lexicon_rows = list(csv.DictReader(handle))
+    valid_rows = [
+        row
+        for row in lexicon_rows
+        if str(row.get("term", "")).strip() and str(row.get("grounding_path", "")).strip()
+    ]
+
+    evidence_path = root / "02-data" / "evidence.jsonl"
+    records: list[dict[str, Any]] = []
+    if evidence_path.is_file():
+        try:
+            records = _load_jsonl(evidence_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print(f"cannot read evidence corpus: {exc}", file=sys.stderr)
+            return 2
+
+    term_stats: dict[str, dict[str, Any]] = {}
+    path_counts: Counter[str] = Counter()
+    path_level_counts: dict[str, Counter[str]] = {}
+    for row in valid_rows:
+        term = str(row["term"]).strip()
+        path = str(row["grounding_path"]).strip()
+        term_stats[term] = {
+            "grounding_path": path,
+            "term_type": str(row.get("term_type", "")).strip(),
+            "status": str(row.get("status", "candidate")).strip() or "candidate",
+            "records": 0,
+            "levels": {},
+            "corpus_roles": {},
+            "acceptance_share": None,
+        }
+    for record in records:
+        record_path = str(record.get("grounding_path", "")).strip()
+        if record_path:
+            path_counts[record_path] += 1
+            path_level_counts.setdefault(record_path, Counter())[
+                str(record.get("evidence_level", "unknown"))
+            ] += 1
+        terms = record.get("lexicon_terms", [])
+        if not isinstance(terms, list):
+            continue
+        level = str(record.get("evidence_level", "unknown"))
+        role = str(record.get("corpus_role", "unknown"))
+        for raw_term in terms:
+            term = str(raw_term).strip()
+            if term not in term_stats:
+                continue
+            stats = term_stats[term]
+            stats["records"] += 1
+            levels = stats["levels"]
+            levels[level] = str(int(levels.get(level, 0)) + 1)
+            roles = stats["corpus_roles"]
+            roles[role] = str(int(roles.get(role, 0)) + 1)
+    for term, stats in term_stats.items():
+        if stats["records"]:
+            positive = sum(
+                int(count) for level, count in stats["levels"].items() if level in {"E3", "E4+", "E5"}
+            )
+            stats["acceptance_share"] = round(positive / stats["records"], 6)
+        stats["levels"] = dict(sorted(stats["levels"].items()))
+        stats["corpus_roles"] = dict(sorted(stats["corpus_roles"].items()))
+
+    zero_yield = sorted(
+        term for term, stats in term_stats.items() if stats["records"] == 0
+    )
+    insufficient_terms: list[str] = []
+    if args.min_per_term is not None:
+        insufficient_terms = sorted(
+            term
+            for term, stats in term_stats.items()
+            if stats["records"] < args.min_per_term
+        )
+    sufficiency = {
+        "min_per_term": args.min_per_term,
+        "status": (
+            "not_evaluated"
+            if args.min_per_term is None
+            else ("sufficient" if not insufficient_terms else "insufficient")
+        ),
+        "insufficient_terms": insufficient_terms,
+        "meaning": (
+            "Sufficiency compares graded corpus yield per lexicon term against the "
+            "configured minimum. Insufficiency means collect through the planned "
+            "routes; it never means loosen the gate or substitute a blocked connector."
+        ),
+    }
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "lexicon_terms": len(valid_rows),
+        "evidence_records": len(records),
+        "terms": term_stats,
+        "grounding_path_yield": {
+            path: {
+                "lexicon_terms": sum(
+                    1 for row in valid_rows if str(row["grounding_path"]).strip() == path
+                ),
+                "evidence_records": path_counts.get(path, 0),
+                "levels": dict(sorted(path_level_counts.get(path, Counter()).items())),
+            }
+            for path in sorted(GROUNDING_PATHS)
+        },
+        "demand_fossil_records": path_counts.get("substitute_behavior", 0),
+        "zero_yield_terms": zero_yield,
+        "sufficiency": sufficiency,
+        "claim_boundary": (
+            "Proto-word clusters are E1 discovery signals; substitute behaviors are E2 "
+            "demand fossils; dimension white space and literature anchors are E0 context. "
+            "None of them alone proves acceptance of a specific solution."
+        ),
+    }
+    output = root / "04-findings" / "lexicon-yield.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    result = dict(payload)
+    result["lexicon_yield_file"] = str(output)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if sufficiency["status"] == "insufficient":
+        return 1
     return 0
 
 
@@ -2711,6 +2960,50 @@ def _render_report(
             lines.append(
                 f"| 角色覆盖：{role} | 需要 ≥1 | {_format_int(item.get('observed', 0))} | {item.get('status', '')} |"
             )
+    lexicon_yield_path = root / "04-findings" / "lexicon-yield.json"
+    if lexicon_yield_path.is_file():
+        try:
+            lexicon_yield = _load_json(lexicon_yield_path)
+        except (OSError, json.JSONDecodeError):
+            lexicon_yield = None
+        if isinstance(lexicon_yield, dict):
+            lines.append("")
+            lines.append("### 命名前研究信号（词表产出）")
+            lines.append("")
+            path_yield = lexicon_yield.get("grounding_path_yield", {})
+            path_bits = []
+            for path, item in path_yield.items():
+                if isinstance(item, dict) and (
+                    item.get("lexicon_terms") or item.get("evidence_records")
+                ):
+                    path_bits.append(
+                        f"{path}（词 {item.get('lexicon_terms', 0)} 个 / 证据 "
+                        f"{_format_int(item.get('evidence_records', 0))} 条）"
+                    )
+            if path_bits:
+                lines.append("词表按路径产出：" + "；".join(path_bits) + "。")
+            fossils = lexicon_yield.get("demand_fossil_records", 0)
+            lines.append(f"需求化石（替代行为 E2 证据）：{_format_int(fossils)} 条。")
+            zero_terms = lexicon_yield.get("zero_yield_terms", [])
+            if zero_terms:
+                lines.append(f"零产出词（需要重设路线或降级状态）：{', '.join(zero_terms)}。")
+            sufficiency = lexicon_yield.get("sufficiency", {})
+            if isinstance(sufficiency, dict) and sufficiency.get("status") != "not_evaluated":
+                insufficient = sufficiency.get("insufficient_terms", [])
+                if insufficient:
+                    lines.append(
+                        f"存量数据充分性：**不足**（低于每词最低 {sufficiency.get('min_per_term')} 条）："
+                        + ", ".join(insufficient)
+                        + "。需要按计划路线补采。"
+                    )
+                else:
+                    lines.append(
+                        f"存量数据充分性：通过（每词 ≥ {sufficiency.get('min_per_term')} 条）。"
+                    )
+            lines.append(
+                "边界：proto-词簇是 E1 发现信号；替代行为是 E2 需求化石；维度白区与文献锚点是 E0 语境，"
+                "单独任何一项都不构成对特定方案的接受证据。"
+            )
     lines.append("")
 
     lines.append("## 4. 需求判断")
@@ -2926,6 +3219,14 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="comma-separated: forum,social,video,ecommerce,crowdfunding",
     )
+    plan_parser.add_argument(
+        "--mode",
+        choices=("standard", "unnamed_experience", "unnamed-experience"),
+        default="standard",
+        help="unnamed-experience runs the grounding phase first: edge-language mining, "
+        "substitute-behavior archaeology, psychophysical dimensions, and literature anchors "
+        "produce the lexicon and scope before keyword routes are designed",
+    )
     plan_parser.add_argument("--market", help="optional market label such as us or de")
     plan_parser.add_argument("--languages", help="comma-separated language codes, e.g. en,zh")
     plan_parser.add_argument(
@@ -2941,6 +3242,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     signals_parser.add_argument("study_dir")
     signals_parser.set_defaults(func=command_signals)
+
+    lexicon_parser = subparsers.add_parser(
+        "lexicon",
+        help="compute lexicon term yield and stock-corpus sufficiency for an "
+        "unnamed-experience study",
+    )
+    lexicon_parser.add_argument("study_dir")
+    lexicon_parser.add_argument(
+        "--min-per-term",
+        type=int,
+        help="minimum graded records per lexicon term for sufficiency; exit 1 when insufficient",
+    )
+    lexicon_parser.set_defaults(func=command_lexicon)
 
     report_parser = subparsers.add_parser(
         "report", help="assemble a Chinese research-status report from study artifacts"

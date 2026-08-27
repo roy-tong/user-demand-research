@@ -20,6 +20,7 @@ Stable raw base: https://raw.githubusercontent.com/roy-tong/user-demand-research
 ## Method references
 
 - [Research protocol](skills/user-demand-research/references/research-protocol.md): sampling frames, evidence roles, anti-survivorship, time balancing, gold sets, quality audits.
+- [Unnamed-experience research](skills/user-demand-research/references/unnamed-experience-research.md): grounding-first method for frontier products with no settled vocabulary — edge-language mining, substitute-behavior archaeology (E2 demand fossils), psychophysical dimension mapping, cross-domain literature anchors; produces the lexicon and scope before keyword routes.
 - [Data contract](skills/user-demand-research/references/data-contract.md): the canonical evidence record and study artifact schemas.
 - [Connector contract](skills/user-demand-research/references/connector-contract.md): run manifests, raw envelopes, and provenance fields.
 - [Open-source connectors](skills/user-demand-research/references/open-source-connectors.md): the four-gate review behind the registry.

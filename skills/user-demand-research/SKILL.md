@@ -16,6 +16,7 @@ The same deterministic operations are available as MCP tools via [scripts/sure_m
 | What the user has | Mode | First output |
 | --- | --- | --- |
 | A product/category/question | Design | Decision contract and source plan |
+| A frontier experience users cannot yet name | Grounding, then Design | Seed lexicon and scope boundary via [unnamed-experience-research.md](references/unnamed-experience-research.md) |
 | A passing contract plus source access | Execute | Pilot results and evidence records |
 | An existing corpus | Audit | Claim-eligibility and data-quality report |
 | An audited corpus plus a decision question | Synthesize | Demand judgments and falsification backlog |
@@ -52,6 +53,8 @@ python3 scripts/sure.py plan /ABSOLUTE/PATH/TO/STUDY \
 ```
 
 `plan` resolves the region and platform types against the platform map and the connector registry, enables only non-blocked platforms, allocates quotas across platforms and evidence roles, and writes a feasibility report plus collection tasks. Exit code 3 means no platform has an enabled connector: report the gap; never substitute a commercial provider, merchant API, or login-based scraper. A `plan` output is a draft Design contract, not a passed one.
+
+When the studied experience has no settled vocabulary (frontier products, unnamed sensations), add `--mode unnamed-experience` and run the grounding phase first: edge-language mining, substitute-behavior archaeology, psychophysical dimension mapping, cross-domain analogy with literature anchors, and first-principles derivation produce `01-sources/lexicon.csv` and the scope boundary before any keyword route is designed. Evidence discipline in this mode: a proto-word cluster is an E1 discovery signal; a DIY/appropriation behavior is an E2 demand fossil (the strongest pre-market signal); dimension white space and literature anchors are E0 context. None of them alone proves acceptance of a specific solution. The Design gate requires at least 5 retained terms across at least 2 grounding paths; `sure.py lexicon` then audits stock-corpus sufficiency per term, and insufficiency means collecting through the planned routes at a size that survives cleaning (plan records a 3–5× raw-to-clean estimate).
 
 Repeat `--platform` only for platforms in scope; omit the flag for a study without these platform sources. Each flag copies `01-sources/<platform>-routes.csv` and enables that adapter. Fill its access, policy-review, retention, query, and concentration placeholders before the Design gate.
 

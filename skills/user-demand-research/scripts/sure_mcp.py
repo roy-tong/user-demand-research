@@ -34,7 +34,7 @@ sys.modules["sure"] = sure
 _spec.loader.exec_module(sure)
 
 SERVER_NAME = "user-demand-research"
-SERVER_VERSION = "1.8.0"
+SERVER_VERSION = "1.9.0"
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 SUPPORTED_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18"}
 SERVER_INSTRUCTIONS = (
@@ -99,6 +99,9 @@ def _build_plan(arguments: dict[str, Any]) -> argparse.Namespace:
     goal = _string(arguments.get("goal"), "goal")
     region = _string(arguments.get("region"), "region")
     platform_types = _string(arguments.get("platform_types"), "platform_types")
+    mode = str(arguments.get("mode", "standard") or "standard").replace("-", "_")
+    if mode not in sure.PLAN_MODES:
+        raise ValueError(f"mode must be one of: {', '.join(sure.PLAN_MODES)}")
     sample_size = arguments.get("sample_size")
     if not isinstance(sample_size, int) or isinstance(sample_size, bool) or sample_size < 1:
         raise ValueError("sample_size must be a positive integer")
@@ -114,6 +117,7 @@ def _build_plan(arguments: dict[str, Any]) -> argparse.Namespace:
         decision=_optional_string(arguments, "decision"),
         study_id=_optional_string(arguments, "study_id"),
         title=_optional_string(arguments, "title"),
+        mode=mode,
     )
 
 
@@ -140,6 +144,18 @@ def _build_check(arguments: dict[str, Any]) -> argparse.Namespace:
 
 def _build_signals(arguments: dict[str, Any]) -> argparse.Namespace:
     return _namespace(study_dir=_string(arguments.get("study_dir"), "study_dir"))
+
+
+def _build_lexicon(arguments: dict[str, Any]) -> argparse.Namespace:
+    min_per_term = arguments.get("min_per_term")
+    if min_per_term is not None and (
+        not isinstance(min_per_term, int) or isinstance(min_per_term, bool) or min_per_term < 1
+    ):
+        raise ValueError("min_per_term must be a positive integer when provided")
+    return _namespace(
+        study_dir=_string(arguments.get("study_dir"), "study_dir"),
+        min_per_term=min_per_term,
+    )
 
 
 def _build_report(arguments: dict[str, Any]) -> argparse.Namespace:
@@ -202,6 +218,10 @@ TOOLS: list[dict[str, Any]] = [
                 "region": {"enum": ["cn", "overseas", "global"]},
                 "sample_size": {"type": "integer", "minimum": 1},
                 "platform_types": {"type": "string", "description": _PLATFORM_TYPES_TEXT},
+                "mode": {
+                    "enum": ["standard", "unnamed-experience"],
+                    "description": "unnamed-experience grounds a seed lexicon (edge language, substitute behaviors, psychophysical dimensions, literature anchors) before keyword routes",
+                },
                 "market": {"type": "string", "description": "optional market label, e.g. us or de"},
                 "languages": {"type": "string", "description": "comma-separated language codes"},
                 "time_window": {"type": "string", "description": "START:END ISO dates"},
@@ -264,6 +284,27 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "sure_lexicon",
+        "description": (
+            "Compute lexicon term yield and stock-corpus sufficiency for an unnamed-experience "
+            "study: per-term and per-grounding-path record counts, acceptance-association "
+            "proxy, zero-yield terms, demand fossils, and a sufficiency verdict against "
+            "--min-per-term. Exit code 1 (insufficient) means collect more, not loosen the gate."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "study_dir": {"type": "string"},
+                "min_per_term": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "minimum graded records per lexicon term",
+                },
+            },
+            "required": ["study_dir"],
+        },
+    },
+    {
         "name": "sure_report",
         "description": (
             "Assemble the Chinese research-status report into 06-report/report.md from the study "
@@ -307,6 +348,7 @@ TOOL_BUILDERS = {
     "sure_init": (sure.command_init, _build_init),
     "sure_check": (sure.command_check, _build_check),
     "sure_signals": (sure.command_signals, _build_signals),
+    "sure_lexicon": (sure.command_lexicon, _build_lexicon),
     "sure_report": (sure.command_report, _build_report),
     "sure_connectors": (sure.command_connectors, _build_connectors),
 }
@@ -377,7 +419,7 @@ def _handle_request(message: dict[str, Any]) -> str:
             payload = _run_tool(name, arguments)
         except ValueError as exc:
             return _jsonrpc_error(request_id, -32602, str(exc))
-        except (OSError, json.JSONDecodeError, RuntimeError, KeyError) as exc:
+        except Exception as exc:  # unexpected tool failure stays a tool error, not a crash
             return _jsonrpc_result(
                 request_id,
                 {

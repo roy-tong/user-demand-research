@@ -22,6 +22,15 @@ Every line in `02-data/evidence.jsonl` must contain these fields:
 | `source_ref` | URL or privacy-safe local/source record reference. |
 | `normalized_text_hash` | Stable exact/near-duplicate key. |
 
+Two optional fields support unnamed-experience (grounding-first) studies; see [unnamed-experience-research.md](unnamed-experience-research.md):
+
+| Field | Meaning |
+| --- | --- |
+| `lexicon_terms` | Retained seed-lexicon terms this record instantiates (array of strings from `01-sources/lexicon.csv`). |
+| `grounding_path` | `edge_language`, `substitute_behavior`, `psychophysical`, `cross_domain`, or `discipline`. |
+
+`sure.py lexicon` uses these fields to compute per-term yield, acceptance-association proxies, demand-fossil counts, and stock-corpus sufficiency.
+
 Missingness is allowed in the full research schema. For the compact evidence index, use an explicit value such as `unknown` only when the source genuinely does not provide the field; do not fabricate a substitute or consequence to satisfy the schema. Records with critical unknowns should stay below the claim level that needs those fields.
 
 Example:
