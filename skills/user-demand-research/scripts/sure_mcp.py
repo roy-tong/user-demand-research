@@ -34,9 +34,27 @@ sys.modules["sure"] = sure
 _spec.loader.exec_module(sure)
 
 SERVER_NAME = "user-demand-research"
-SERVER_VERSION = "1.7.0"
+SERVER_VERSION = "1.8.0"
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 SUPPORTED_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18"}
+SERVER_INSTRUCTIONS = (
+    "SURE user-demand research, deterministic surface. Workflow: "
+    "(1) sure_plan with the user's goal, region (cn|overseas|global), sample size, and "
+    "platform types — it resolves platforms against the connector registry, allocates "
+    "quotas, and writes feasibility plus collection tasks; "
+    "(2) complete the design contract (decision, hypotheses, falsifiers, adapter review "
+    "fields) and pass sure_check stage=design before collecting; "
+    "(3) collect only with registry-supported connectors, writing a run manifest per "
+    "collection; (4) sure_signals computes deterministic corpus signals; "
+    "(5) sure_report assembles the research-status report. "
+    "Tool results embed exit codes: 1 = failed gate, 3 = no feasible platform — both are "
+    "research statuses to report, never reasons to retry or to substitute a commercial "
+    "provider, merchant API, saved login, internal endpoint, or browser automation. "
+    "Evidence is graded E0-E5; a validated demand judgment needs linked problem, solution, "
+    "commercial/behavioral, and counter-evidence chains for the same role, scene, and task. "
+    "Records are not users; convenience samples do not support prevalence or market-size "
+    "claims. For judgment rules read the Skill, not just these tools."
+)
 PLATFORMS = ("reddit", "x", "youtube", "amazon", "jd", "taobao", "kickstarter")
 STAGES = sure.STAGES
 
@@ -343,6 +361,7 @@ def _handle_request(message: dict[str, Any]) -> str:
                 "protocolVersion": version,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                "instructions": SERVER_INSTRUCTIONS,
             },
         )
     if method == "ping":

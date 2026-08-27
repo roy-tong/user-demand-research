@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.0 — 2026-08-27
+
+- Added agent-discovery layer: repository `llms.txt` (stable raw index for agents) and `AGENTS.md` (working rules for coding agents inside the repo).
+- Added `instructions` to the MCP initialize response so MCP clients receive the plan → check → collect → signals → report workflow, exit-code semantics, and hard boundaries without reading the repo first.
+- Added an "Agent 接入速查" block at the top of the README with one-line capability framing and the four machine-readable entry points.
+- Expanded the Skill description triggers (研究计划生成、调研报告、批量反馈挖掘).
+
 ## 1.7.0 — 2026-08-27
 
 - Added `scripts/sure_mcp.py`: a standard-library-only MCP stdio server exposing `sure_plan`, `sure_init`, `sure_check`, `sure_signals`, `sure_report`, `sure_connectors`, and `sure_platform_map` as MCP tools for MCP-first clients (Claude Code, ZCode, Cursor, Cline, and similar).

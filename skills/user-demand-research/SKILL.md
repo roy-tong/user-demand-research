@@ -1,6 +1,6 @@
 ---
 name: user-demand-research
-description: Design, execute, audit, or synthesize evidence-led user-demand research with the SURE protocol. Use for 用户研究、需求研究、场景研究、客户发现、Reddit/X/YouTube/Amazon/京东/淘宝/Kickstarter/评论/论坛/工单/访谈数据分析、JTBD、开源采集连接器审查、反幸存者偏差采样、付费意愿审计，或判断一批材料能否支持产品决策。Connects user roles, scenes, tasks, substitutes, frictions, consequences, solution acceptance, commercial behavior, counter-evidence, and E0–E5 evidence. Do not use for generic market sizing, invented personas, or treating feature mentions and frequency as demand.
+description: Design, execute, audit, or synthesize evidence-led user-demand research with the SURE protocol. Use for 用户研究、需求研究、场景研究、客户发现、Reddit/X/YouTube/Amazon/京东/淘宝/Kickstarter/评论/论坛/工单/访谈数据分析、JTBD、开源采集连接器审查、反幸存者偏差采样、付费意愿审计、研究计划生成、调研报告、批量反馈挖掘，或判断一批材料能否支持产品决策。Connects user roles, scenes, tasks, substitutes, frictions, consequences, solution acceptance, commercial behavior, counter-evidence, and E0–E5 evidence. Do not use for generic market sizing, invented personas, or treating feature mentions and frequency as demand.
 metadata:
   short-description: Build auditable user-demand evidence and decisions
 ---

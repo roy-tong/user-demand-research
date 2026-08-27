@@ -62,6 +62,8 @@ class SureMcpServerTests(unittest.TestCase):
         initialize = by_id[1]["result"]
         self.assertEqual("user-demand-research", initialize["serverInfo"]["name"])
         self.assertIn("tools", initialize["capabilities"])
+        self.assertIn("sure_plan", initialize["instructions"])
+        self.assertIn("exit codes", initialize["instructions"])
         tool_names = {tool["name"] for tool in by_id[2]["result"]["tools"]}
         self.assertIn("sure_plan", tool_names)
         self.assertIn("sure_report", tool_names)

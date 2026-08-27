@@ -6,6 +6,19 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![CI](https://github.com/roy-tong/user-demand-research/actions/workflows/tests.yml/badge.svg)](https://github.com/roy-tong/user-demand-research/actions/workflows/tests.yml)
 
+## Agent 接入速查
+
+为 Agent 提供的稳定机器可读入口：[llms.txt](llms.txt)（发现索引，raw 地址 `https://raw.githubusercontent.com/roy-tong/user-demand-research/main/llms.txt`）、[AGENTS.md](AGENTS.md)（在本仓库内工作的约定）、[连接器注册表](skills/user-demand-research/assets/open-source-connectors.json)、[平台地图](skills/user-demand-research/assets/platform-map.json)。
+
+一句话能力：输入研究目标 + 研究范围 + 样本量 + 平台类型 → 输出平台可行性、采集任务、确定性数据信号与调研报告。
+
+```text
+CLI   python3 skills/user-demand-research/scripts/sure.py plan <dir> --goal "…" --region overseas --sample-size 100000 --platform-types forum,social,video
+MCP   注册 sure-research 服务器（scripts/sure_mcp.py）→ sure_plan / sure_check / sure_signals / sure_report / sure_connectors / sure_platform_map
+Skill 安装后直接说：使用 $user-demand-research，为「…」建立研究目录
+验证   python3 skills/user-demand-research/scripts/sure.py check examples/sample-study --stage full   # 离线合成样例，期望 pass
+```
+
 ## 先选择适合你的入口
 
 | 你是谁 | 建议入口 | 你会得到什么 |
@@ -297,6 +310,7 @@ Agent 调用 `sure_plan` 得到配额与任务清单，按 Skill 协议补全设
 
 | 路径 | 内容 |
 | --- | --- |
+| `llms.txt` / `AGENTS.md` | Agent 发现索引与仓库内工作约定 |
 | `skills/user-demand-research/SKILL.md` | Agent 入口与核心判断规则 |
 | `skills/user-demand-research/references/agent-runbook.md` | 文件级执行与交接手册 |
 | `skills/user-demand-research/references/research-protocol.md` | 完整研究协议 |
