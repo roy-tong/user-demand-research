@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import shutil
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -30,6 +31,36 @@ CORPUS_ROLES = {
 }
 STAGES = ("design", "evidence", "decision", "full")
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "assets" / "open-source-connectors.json"
+PLATFORM_MAP_PATH = Path(__file__).resolve().parents[1] / "assets" / "platform-map.json"
+
+PLAN_TYPE_WEIGHTS = {
+    "forum": 0.35,
+    "social": 0.30,
+    "video": 0.20,
+    "ecommerce": 0.30,
+    "crowdfunding": 0.10,
+}
+PLAN_ROLE_WEIGHTS = {
+    "direct_solution": 0.30,
+    "open_scene": 0.30,
+    "substitute_rejector": 0.15,
+    "post_purchase_support": 0.15,
+    "control": 0.10,
+}
+PLAN_MAX_PLATFORM_SHARE = 0.65
+PLAN_PLATFORM_BIAS = {
+    "reddit": "Subreddit self-selection and search ranking bias",
+    "x": "Public-post reach bias; reposts are distribution, not demand",
+    "youtube": "Creator-selection bias; comments skew toward engaged viewers",
+    "amazon": "Historical reviews through 2023-09 only; purchase-verified skew",
+    "jd": "No reviewed connector; route unavailable",
+    "taobao": "No reviewed connector; route unavailable",
+    "kickstarter": "No reviewed connector; route unavailable",
+    "zhihu": "No reviewed connector; route unavailable",
+    "weibo": "No reviewed connector; route unavailable",
+    "bilibili": "No reviewed connector; route unavailable",
+    "modian": "No reviewed connector; route unavailable",
+}
 
 CONNECTOR_CONFIG_REQUIRED = {
     "connector_id",
@@ -411,6 +442,17 @@ def _connector_index() -> dict[str, dict[str, Any]]:
             raise ValueError(f"duplicate connector id in registry: {connector_id}")
         result[connector_id] = item
     return result
+
+
+def _load_platform_map() -> dict[str, Any]:
+    value = _load_json(PLATFORM_MAP_PATH)
+    if (
+        not isinstance(value, dict)
+        or not isinstance(value.get("regions"), dict)
+        or not isinstance(value.get("platforms"), dict)
+    ):
+        raise ValueError(f"invalid platform map: {PLATFORM_MAP_PATH}")
+    return value
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -1771,15 +1813,16 @@ def _write_report(audit: Audit) -> tuple[Path, Path]:
     return json_path, md_path
 
 
-def command_init(args: argparse.Namespace) -> int:
-    target = Path(args.study_dir).resolve()
-    if target.exists() and any(target.iterdir()):
-        print(f"refusing to overwrite non-empty directory: {target}", file=sys.stderr)
-        return 2
+def _create_workspace(
+    target: Path,
+    study_id: str,
+    title: str,
+    decision: str,
+    platforms: list[str],
+) -> tuple[dict[str, Any], list[str]]:
     template = Path(__file__).resolve().parents[1] / "assets" / "study-template"
     if not template.is_dir():
-        print(f"study template not found: {template}", file=sys.stderr)
-        return 2
+        raise FileNotFoundError(f"study template not found: {template}")
     target.mkdir(parents=True, exist_ok=True)
     shutil.copytree(template, target, dirs_exist_ok=True)
     connector_template_files = {
@@ -1795,11 +1838,11 @@ def command_init(args: argparse.Namespace) -> int:
             shutil.copyfile(source, destination)
     study_path = target / "study.json"
     study = _load_json(study_path)
-    study["study_id"] = args.study_id
-    study["title"] = args.title
-    study["decision"]["question"] = args.decision
+    study["study_id"] = study_id
+    study["title"] = title
+    study["decision"]["question"] = decision
     platform_templates: list[str] = []
-    for platform in sorted(set(args.platform)):
+    for platform in sorted(set(platforms)):
         source = template.parent / f"{platform}-route-template.csv"
         destination = target / "01-sources" / f"{platform}-routes.csv"
         shutil.copyfile(source, destination)
@@ -1808,6 +1851,21 @@ def command_init(args: argparse.Namespace) -> int:
         if isinstance(adapters, dict) and isinstance(adapters.get(platform), dict):
             adapters[platform]["enabled"] = True
     study_path.write_text(json.dumps(study, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return study, platform_templates
+
+
+def command_init(args: argparse.Namespace) -> int:
+    target = Path(args.study_dir).resolve()
+    if target.exists() and any(target.iterdir()):
+        print(f"refusing to overwrite non-empty directory: {target}", file=sys.stderr)
+        return 2
+    try:
+        _, platform_templates = _create_workspace(
+            target, args.study_id, args.title, args.decision, list(args.platform)
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     print(
         json.dumps(
             {
@@ -1815,7 +1873,8 @@ def command_init(args: argparse.Namespace) -> int:
                 "study_dir": str(target),
                 "platform_templates": platform_templates,
                 "connector_templates": [
-                    str(path) for path in connector_template_files.values()
+                    str(target / "01-sources" / "collection-manifest-template.json"),
+                    str(target / "02-data" / "raw" / "raw-connector-envelope-template.jsonl"),
                 ],
             },
             ensure_ascii=False,
@@ -1864,6 +1923,968 @@ def command_connectors(args: argparse.Namespace) -> int:
     return 0
 
 
+HISTORICAL_DEFAULT_WINDOW = ("2021-10-01", "2023-09-30")
+
+
+def _allocate_platform_shares(
+    platform_types: dict[str, str]
+) -> tuple[dict[str, float], list[str]]:
+    """Share sample volume across enabled platforms by platform-type weight.
+
+    Applies an iterative cap so one platform stays under PLAN_MAX_PLATFORM_SHARE
+    when at least two platforms are enabled; a lone platform takes everything and
+    the caller records a single-family warning.
+    """
+    warnings: list[str] = []
+    if not platform_types:
+        return {}, warnings
+    if len(platform_types) == 1:
+        platform = next(iter(platform_types))
+        warnings.append(
+            f"{platform} is the only enabled platform; the study cannot pass "
+            f"max_source_family_share={PLAN_MAX_PLATFORM_SHARE} without a second source family"
+        )
+        return {platform: 1.0}, warnings
+
+    raw = {
+        platform: PLAN_TYPE_WEIGHTS.get(platform_type, 0.1)
+        for platform, platform_type in platform_types.items()
+    }
+    total = sum(raw.values())
+    shares = {platform: value / total for platform, value in raw.items()}
+    for _ in range(len(shares)):
+        over = {p for p, s in shares.items() if s > PLAN_MAX_PLATFORM_SHARE}
+        if not over:
+            break
+        for platform in over:
+            shares[platform] = PLAN_MAX_PLATFORM_SHARE
+        remainder = 1.0 - PLAN_MAX_PLATFORM_SHARE * len(over)
+        under = {p: raw[p] for p in shares if p not in over}
+        under_total = sum(under.values())
+        if under_total <= 0:
+            break
+        for platform, value in under.items():
+            shares[platform] = remainder * value / under_total
+    return shares, warnings
+
+
+def _scale_route_targets(routes_csv: Path, quota: int) -> None:
+    if not routes_csv.is_file():
+        return
+    with routes_csv.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+        fieldnames = list(reader.fieldnames or [])
+    if not rows:
+        return
+    baseline = 0
+    for row in rows:
+        try:
+            baseline += int(row.get("target_records", "0"))
+        except (TypeError, ValueError):
+            baseline += 0
+    if baseline <= 0:
+        return
+    factor = quota / baseline
+    scaled: list[int] = []
+    for row in rows:
+        try:
+            current = int(row.get("target_records", "0"))
+        except (TypeError, ValueError):
+            current = 0
+        scaled.append(max(1, round(current * factor)))
+    drift = quota - sum(scaled)
+    if drift and scaled:
+        largest = max(range(len(scaled)), key=lambda index: scaled[index])
+        scaled[largest] = max(1, scaled[largest] + drift)
+    for row, value in zip(rows, scaled):
+        row["target_records"] = str(value)
+    with routes_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _write_planned_source_plan(
+    source_plan_csv: Path, platform_quotas: dict[str, int]
+) -> None:
+    fieldnames = [
+        "corpus_role",
+        "source_family",
+        "route_or_query",
+        "target_records",
+        "cap_share",
+        "access_status",
+        "known_bias",
+    ]
+    rows = []
+    for platform in sorted(platform_quotas):
+        quota = platform_quotas[platform]
+        role_targets = {
+            role: max(1, round(quota * weight)) for role, weight in PLAN_ROLE_WEIGHTS.items()
+        }
+        drift = quota - sum(role_targets.values())
+        if drift:
+            largest_role = max(role_targets, key=lambda role: role_targets[role])
+            role_targets[largest_role] = max(1, role_targets[largest_role] + drift)
+        for role, target in role_targets.items():
+            rows.append(
+                {
+                    "corpus_role": role,
+                    "source_family": platform,
+                    "route_or_query": f"see 01-sources/{platform}-routes.csv",
+                    "target_records": str(target),
+                    "cap_share": "0.40",
+                    "access_status": "planned",
+                    "known_bias": PLAN_PLATFORM_BIAS.get(platform, ""),
+                }
+            )
+    with source_plan_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _platform_prerequisites(connector: dict[str, Any]) -> list[str]:
+    items = [str(value) for value in connector.get("limits", [])]
+    watch = connector.get("policy_watch")
+    if isinstance(watch, dict) and watch.get("action_required"):
+        items.append(f"policy watch ({watch.get('recheck_by', 'n/a')}): {watch['action_required']}")
+    return items
+
+
+def command_plan(args: argparse.Namespace) -> int:
+    target = Path(args.study_dir).resolve()
+    if target.exists() and any(target.iterdir()):
+        print(f"refusing to overwrite non-empty directory: {target}", file=sys.stderr)
+        return 2
+    try:
+        platform_map = _load_platform_map()
+        registry = _connector_index()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    requested_types: list[str] = []
+    for token in args.platform_types.split(","):
+        token = token.strip().lower()
+        if token and token not in requested_types:
+            requested_types.append(token)
+    invalid_types = [t for t in requested_types if t not in platform_map["platform_types"]]
+    if invalid_types:
+        print(
+            "unknown platform types: "
+            + ", ".join(invalid_types)
+            + "; valid types: "
+            + ", ".join(sorted(platform_map["platform_types"])),
+            file=sys.stderr,
+        )
+        return 2
+    if args.sample_size < 1:
+        print("--sample-size must be a positive integer", file=sys.stderr)
+        return 2
+
+    region_entry = platform_map["regions"].get(args.region, {})
+    candidates: list[tuple[str, str]] = []
+    for platform_type in requested_types:
+        for platform in region_entry.get("platforms_by_type", {}).get(platform_type, []):
+            candidates.append((platform_type, platform))
+
+    resolved: list[dict[str, Any]] = []
+    for platform_type, platform in candidates:
+        entry: dict[str, Any] = {
+            "platform": platform,
+            "platform_type": platform_type,
+            "status": "unavailable",
+            "reason": "",
+            "quota": 0,
+        }
+        meta = platform_map["platforms"].get(platform)
+        connector_id = str(meta.get("connector_id") or "") if isinstance(meta, dict) else ""
+        if not connector_id:
+            entry["status"] = "no_reviewed_connector"
+            entry["reason"] = (
+                str(meta.get("status_note", "no reviewed connector"))
+                if isinstance(meta, dict)
+                else "platform missing from platform map"
+            )
+            resolved.append(entry)
+            continue
+        connector = registry.get(connector_id)
+        if connector is None:
+            entry["status"] = "missing_from_registry"
+            entry["reason"] = f"connector {connector_id} is not in the reviewed registry"
+            resolved.append(entry)
+            continue
+        decision = str(connector.get("decision", ""))
+        entry["connector_id"] = connector_id
+        entry["connector_revision"] = str(connector.get("reviewed_revision", ""))
+        entry["connector_license"] = str(connector.get("license", ""))
+        entry["registry_decision"] = decision
+        if decision in {"supported", "historical_only"}:
+            entry["status"] = "enabled"
+            entry["quota"] = 0
+            entry["prerequisites"] = _platform_prerequisites(connector)
+            if decision == "historical_only":
+                entry["constraints"] = [
+                    f"historical data only: {', '.join(map(str, connector.get('usable_scope', [])))}"
+                ]
+        else:
+            entry["status"] = "blocked"
+            entry["reason"] = "; ".join(str(v) for v in connector.get("limits", [])) or (
+                "registry decision is blocked"
+            )
+        resolved.append(entry)
+
+    enabled = [item for item in resolved if item["status"] == "enabled"]
+    unavailable = [item for item in resolved if item["status"] != "enabled"]
+
+    shares, share_warnings = _allocate_platform_shares(
+        {item["platform"]: item["platform_type"] for item in enabled}
+    )
+    platform_quotas: dict[str, int] = {}
+    allocated = 0
+    for platform, share in shares.items():
+        quota = max(1, round(args.sample_size * share))
+        platform_quotas[platform] = quota
+        allocated += quota
+    if platform_quotas:
+        drift = args.sample_size - allocated
+        if drift:
+            largest = max(platform_quotas, key=platform_quotas.get)
+            platform_quotas[largest] = max(1, platform_quotas[largest] + drift)
+    for item in enabled:
+        item["quota"] = platform_quotas.get(item["platform"], 0)
+
+    study_id = args.study_id or (
+        "study-"
+        + datetime.now(timezone.utc).strftime("%Y%m%d")
+        + "-"
+        + hashlib.sha1(
+            f"{args.goal}|{args.region}|{args.platform_types}".encode("utf-8")
+        ).hexdigest()[:6]
+    )
+    title = args.title or args.goal
+    decision_question = args.decision or f"待填写：围绕「{args.goal}」明确一个要改变的具体产品决定"
+    try:
+        study, _ = _create_workspace(
+            target, study_id, title, decision_question, [item["platform"] for item in enabled]
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    all_historical = bool(enabled) and all(
+        item.get("registry_decision") == "historical_only" for item in enabled
+    )
+    if args.time_window:
+        parts = args.time_window.split(":")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            print("--time-window must look like 2025-01-01:2026-08-31", file=sys.stderr)
+            return 2
+        window = {"start": parts[0], "end": parts[1]}
+    elif all_historical:
+        window = {"start": HISTORICAL_DEFAULT_WINDOW[0], "end": HISTORICAL_DEFAULT_WINDOW[1]}
+    else:
+        today = datetime.now(timezone.utc).date()
+        window = {
+            "start": (today - timedelta(days=365)).isoformat(),
+            "end": today.isoformat(),
+        }
+    languages = args.languages.split(",") if args.languages else (["zh"] if args.region == "cn" else ["en"])
+    scope = study.get("scope", {})
+    scope["markets"] = [args.region] + ([args.market] if args.market else [])
+    scope["languages"] = [lang.strip() for lang in languages if lang.strip()]
+    scope["source_time_window"] = window
+    scope["allowed_sources"] = [item["platform"] for item in enabled]
+    study["scope"] = scope
+    gates = study.get("quality_gates", {})
+    gates["min_evidence_records"] = max(30, round(args.sample_size * 0.01))
+    study["quality_gates"] = gates
+    study["plan"] = {
+        "goal": args.goal,
+        "region": args.region,
+        "market": args.market,
+        "sample_target": args.sample_size,
+        "platform_types": requested_types,
+        "planned_at": datetime.now(timezone.utc).isoformat(),
+        "platform_quotas": platform_quotas,
+        "feasible_platforms": [item["platform"] for item in enabled],
+        "unavailable_platforms": [
+            {"platform": item["platform"], "status": item["status"], "reason": item["reason"]}
+            for item in unavailable
+        ],
+        "notes": [
+            "region and market are sampling context, not verified residence",
+            "sample target is a collection ceiling, not a claim of independent users",
+        ],
+    }
+    (target / "study.json").write_text(
+        json.dumps(study, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    for item in enabled:
+        routes_csv = target / "01-sources" / f"{item['platform']}-routes.csv"
+        _scale_route_targets(routes_csv, item["quota"])
+    _write_planned_source_plan(target / "01-sources" / "source-plan.csv", platform_quotas)
+
+    feasibility = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "goal": args.goal,
+        "region": args.region,
+        "market": args.market,
+        "requested_platform_types": requested_types,
+        "sample_target": args.sample_size,
+        "platforms": resolved,
+        "warnings": share_warnings
+        + (
+            ["sample target below 1000 is pilot scale; conclusions stay exploratory"]
+            if args.sample_size < 1000
+            else []
+        )
+        + (
+            [
+                "historical-only connectors are enabled; every conclusion is bounded by "
+                f"the dataset period ending {window['end']}"
+            ]
+            if all_historical
+            else []
+        ),
+        "meaning": (
+            "Feasibility reflects registry decisions only. Each enabled platform still needs "
+            "study-specific access, policy, and data-rights review before collection."
+        ),
+    }
+    (target / "01-sources" / "feasibility.json").write_text(
+        json.dumps(feasibility, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    tasks_lines = [
+        "# Collection tasks",
+        "",
+        f"Study: `{study_id}` — {args.goal}",
+        "",
+        f"- Region: `{args.region}`" + (f" (market: `{args.market}`)" if args.market else ""),
+        f"- Sample target: {args.sample_size}",
+        f"- Feasible platforms: {', '.join(item['platform'] for item in enabled) or 'none'}",
+        "",
+    ]
+    for item in enabled:
+        tasks_lines.extend(
+            [
+                f"## {item['platform']} ({item['platform_type']}) — target {item['quota']} records",
+                "",
+                f"- Connector: `{item['connector_id']}` @ `{item['connector_revision']}` "
+                f"({item['connector_license']}, registry decision `{item['registry_decision']}`)",
+            ]
+        )
+        for constraint in item.get("constraints", []):
+            tasks_lines.append(f"- Constraint: {constraint}")
+        for prerequisite in item.get("prerequisites", []):
+            tasks_lines.append(f"- Prerequisite: {prerequisite}")
+        tasks_lines.extend(
+            [
+                f"- Steps: fill `01-sources/{item['platform']}-routes.csv` queries → complete the "
+                f"`source_adapters.{item['platform']}` review fields in `study.json` → pilot the "
+                "routes → write a collection manifest per run → scale only routes that yield "
+                "their assigned evidence role",
+                "- Manifest: copy `01-sources/collection-manifest-template.json` into "
+                "`01-sources/manifests/` and complete it for every run",
+                "",
+            ]
+        )
+    if unavailable:
+        tasks_lines.extend(["## Unavailable routes (do not enable)", ""])
+        for item in unavailable:
+            tasks_lines.append(
+                f"- {item['platform']} ({item['platform_type']}): `{item['status']}` — {item['reason']}"
+            )
+        tasks_lines.append("")
+    tasks_lines.extend(
+        [
+            "## Design gate before any collection",
+            "",
+            "1. Complete `decision` (owner, deadline, options, minimum evidence), `hypotheses`, "
+            "`stopping_rules`, and `restart_rules` in `study.json`.",
+            "2. Run `python3 scripts/sure.py check STUDY --stage design --write-report`.",
+            "3. Do not collect when a platform has no enabled connector; record the gap instead.",
+            "",
+        ]
+    )
+    (target / "01-sources" / "tasks.md").write_text("\n".join(tasks_lines), encoding="utf-8")
+
+    summary = {
+        "status": "planned" if enabled else "planned_without_feasible_platforms",
+        "study_dir": str(target),
+        "study_id": study_id,
+        "goal": args.goal,
+        "region": args.region,
+        "sample_target": args.sample_size,
+        "feasible_platforms": [item["platform"] for item in enabled],
+        "platform_quotas": platform_quotas,
+        "unavailable_platforms": [
+            {"platform": item["platform"], "status": item["status"]} for item in unavailable
+        ],
+        "warnings": feasibility["warnings"],
+        "next_step": "fill the design contract, then run: sure.py check STUDY --stage design --write-report",
+        "feasibility_report": str(target / "01-sources" / "feasibility.json"),
+        "task_list": str(target / "01-sources" / "tasks.md"),
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0 if enabled else 3
+
+
+def _compute_signals(root: Path, study: dict[str, Any] | None) -> dict[str, Any]:
+    evidence_path = root / "02-data" / "evidence.jsonl"
+    records = _load_jsonl(evidence_path)
+    total = len(records)
+    record_ids = [str(record.get("record_id", "")) for record in records]
+    level_counts: Counter[str] = Counter()
+    role_counts: Counter[str] = Counter()
+    role_level: dict[str, Counter[str]] = {}
+    family_counts: Counter[str] = Counter()
+    source_refs: set[str] = set()
+    hash_counts: Counter[str] = Counter()
+    dates: list[str] = []
+    month_counts: Counter[str] = Counter()
+    for record in records:
+        level = str(record.get("evidence_level", "unknown"))
+        role = str(record.get("corpus_role", "unknown"))
+        family = str(record.get("source_family", "unknown")).strip().lower() or "unknown"
+        level_counts[level] += 1
+        role_counts[role] += 1
+        role_level.setdefault(role, Counter())[level] += 1
+        family_counts[family] += 1
+        source_ref = str(record.get("source_ref", ""))
+        if source_ref:
+            source_refs.add(source_ref)
+        text_hash = str(record.get("normalized_text_hash", ""))
+        if text_hash:
+            hash_counts[text_hash] += 1
+        day = _source_day(record.get("created_at", ""))
+        if len(day) == 10 and day[:4].isdigit():
+            dates.append(day)
+            month_counts[day[:7]] += 1
+
+    duplicate_records = sum(count - 1 for count in hash_counts.values() if count > 1)
+    duplicate_rate = (duplicate_records / total) if total else 0.0
+    dominant_family, dominant_family_count = (
+        (family_counts.most_common(1)[0] if family_counts else ("", 0))
+    )
+    dominant_family_share = (dominant_family_count / total) if total else 0.0
+    top_month, top_month_count = (month_counts.most_common(1)[0] if month_counts else ("", 0))
+
+    problem_records = sum(level_counts[level] for level in ("E1", "E2"))
+    solution_records = level_counts.get("E3", 0)
+    commercial_records = sum(level_counts[level] for level in ("E4+", "E5"))
+    counter_records = level_counts.get("E4-", 0)
+
+    gates = (study or {}).get("quality_gates", {})
+    gate_report: dict[str, Any] = {}
+    try:
+        required_min = int(gates.get("min_evidence_records", 0))
+    except (TypeError, ValueError):
+        required_min = 0
+    gate_report["min_evidence_records"] = {
+        "required": required_min,
+        "observed": total,
+        "status": "pass" if total >= required_min else "fail",
+    }
+    try:
+        max_family_share = float(gates.get("max_source_family_share", 1.0))
+    except (TypeError, ValueError):
+        max_family_share = 1.0
+    gate_report["max_source_family_share"] = {
+        "limit": max_family_share,
+        "observed": round(dominant_family_share, 6),
+        "status": "pass" if dominant_family_share <= max_family_share else "fail",
+    }
+    try:
+        max_duplicate_rate = float(gates.get("max_normalized_duplicate_rate", 1.0))
+    except (TypeError, ValueError):
+        max_duplicate_rate = 1.0
+    gate_report["max_normalized_duplicate_rate"] = {
+        "limit": max_duplicate_rate,
+        "observed": round(duplicate_rate, 6),
+        "status": "pass" if duplicate_rate <= max_duplicate_rate else "fail",
+    }
+    required_roles = [str(role) for role in gates.get("required_corpus_roles", [])]
+    gate_report["required_corpus_roles"] = {
+        role: {
+            "required": True,
+            "observed": role_counts.get(role, 0),
+            "status": "pass" if role_counts.get(role, 0) > 0 else "fail",
+        }
+        for role in required_roles
+    }
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "record_count": total,
+        "unique_record_ids": len(set(record_ids)),
+        "normalized_duplicate_records": duplicate_records,
+        "normalized_duplicate_rate": round(duplicate_rate, 6),
+        "evidence_levels": dict(sorted(level_counts.items())),
+        "corpus_roles": dict(sorted(role_counts.items())),
+        "role_level_matrix": {
+            role: dict(sorted(counter.items())) for role, counter in sorted(role_level.items())
+        },
+        "source_families": dict(sorted(family_counts.items())),
+        "dominant_source_family": dominant_family,
+        "dominant_source_family_share": round(dominant_family_share, 6),
+        "unique_source_refs": len(source_refs),
+        "time_range": {
+            "earliest": min(dates) if dates else None,
+            "latest": max(dates) if dates else None,
+            "span_days": (
+                (
+                    datetime.fromisoformat(max(dates)) - datetime.fromisoformat(min(dates))
+                ).days
+                if dates
+                else None
+            ),
+            "top_month": top_month or None,
+            "top_month_share": round(top_month_count / len(dates), 6) if dates else None,
+        },
+        "chain_readiness": {
+            "problem_E1_E2": problem_records,
+            "solution_E3": solution_records,
+            "commercial_E4p_E5": commercial_records,
+            "counter_E4m": counter_records,
+        },
+        "gates": gate_report,
+        "meaning": (
+            "Deterministic corpus signals only. They do not extract scenes, quantify demand, "
+            "or replace evidence coding and demand judgments."
+        ),
+    }
+
+
+def command_signals(args: argparse.Namespace) -> int:
+    root = Path(args.study_dir).resolve()
+    study_path = root / "study.json"
+    study = None
+    if study_path.is_file():
+        try:
+            study = _load_json(study_path)
+        except (OSError, json.JSONDecodeError):
+            study = None
+    try:
+        signals = _compute_signals(root, study if isinstance(study, dict) else None)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"cannot compute signals: {exc}", file=sys.stderr)
+        return 2
+    output = root / "04-findings" / "signals.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(signals, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    payload = dict(signals)
+    payload["signals_file"] = str(output)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _aggregate_manifests(manifest_dir: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "runs": 0,
+        "invalid_manifests": 0,
+        "requested_records": 0,
+        "reached_records": 0,
+        "written_records": 0,
+        "connectors": [],
+        "platforms": [],
+        "stop_reasons": {},
+    }
+    if not manifest_dir.is_dir():
+        return result
+    connectors: set[str] = set()
+    platforms: set[str] = set()
+    stop_reasons: Counter[str] = Counter()
+    for path in sorted(manifest_dir.glob("*.json")):
+        try:
+            manifest = _load_json(path)
+        except (OSError, json.JSONDecodeError):
+            result["invalid_manifests"] += 1
+            continue
+        if not isinstance(manifest, dict):
+            result["invalid_manifests"] += 1
+            continue
+        result["runs"] += 1
+        for field_name in ("requested_records", "reached_records", "written_records"):
+            try:
+                result[field_name] += int(manifest.get(field_name, 0))
+            except (TypeError, ValueError):
+                continue
+        connector_id = str(manifest.get("connector_id", "")).strip()
+        platform = str(manifest.get("platform", "")).strip()
+        if connector_id and "待填写" not in connector_id:
+            connectors.add(connector_id)
+        if platform and "待填写" not in platform:
+            platforms.add(platform)
+        stop_reason = str(manifest.get("stop_reason", "")).strip()
+        if stop_reason and "待填写" not in stop_reason:
+            stop_reasons[stop_reason] += 1
+    result["connectors"] = sorted(connectors)
+    result["platforms"] = sorted(platforms)
+    result["stop_reasons"] = dict(sorted(stop_reasons.items()))
+    return result
+
+
+def _format_int(value: Any) -> str:
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_percent(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _render_report(
+    root: Path,
+    study: dict[str, Any],
+    signals: dict[str, Any],
+    manifests: dict[str, Any],
+    audit_payload: dict[str, Any] | None,
+    judgments: list[Any],
+    feasibility: dict[str, Any] | None,
+) -> str:
+    plan = study.get("plan", {}) if isinstance(study.get("plan"), dict) else {}
+    decision = study.get("decision", {})
+    scope = study.get("scope", {})
+    gates = study.get("quality_gates", {})
+    audit_status = (audit_payload or {}).get("status", "missing")
+    failed_checks = [
+        f"{check.get('id', '?')}: {check.get('detail', '')}"
+        for check in (audit_payload or {}).get("checks", [])
+        if isinstance(check, dict) and check.get("status") == "fail"
+    ]
+    lines: list[str] = []
+    lines.append(f"# {study.get('title', '用户需求研究')} — 调研报告")
+    lines.append("")
+    lines.append(
+        f"- 研究编号：`{study.get('study_id', '')}`　方法版本：`{study.get('method_version', '')}`"
+    )
+    lines.append(f"- 生成时间：{datetime.now(timezone.utc).isoformat(timespec='seconds')}")
+    if audit_status == "pass":
+        lines.append("- 阶段检查：**通过**（结构与证据链门槛通过，不证明总体比例）")
+    else:
+        lines.append(f"- 阶段检查：**未通过（{audit_status}）**。未通过项：")
+        for check in failed_checks[:10]:
+            lines.append(f"  - {check}")
+        lines.append("  在通过 `check --stage full` 之前，本报告的结论只能停留在研究状态输出。")
+    lines.append("")
+
+    lines.append("## 1. 研究定位")
+    lines.append("")
+    if plan:
+        lines.append(f"- 研究目标：{plan.get('goal', '')}")
+        region = plan.get("region", "")
+        market = plan.get("market", "")
+        lines.append(f"- 研究范围：`{region}`" + (f"（标注市场：`{market}`，作为采样语境而非常住地）" if market else "（作为采样语境而非常住地）"))
+        lines.append(f"- 样本容量目标：{_format_int(plan.get('sample_target', 0))}（采集上限，不是独立用户数）")
+        quotas = plan.get("platform_quotas", {})
+        if isinstance(quotas, dict) and quotas:
+            quota_text = "、".join(
+                f"{platform} {_format_int(value)}" for platform, value in sorted(quotas.items())
+            )
+            lines.append(f"- 平台配额：{quota_text}")
+    lines.append(f"- 决策问题：{decision.get('question', '')}")
+    options = decision.get("options", [])
+    if options:
+        lines.append(f"- 决策选项：{'；'.join(str(option) for option in options)}")
+    deadline = decision.get("deadline", "")
+    if deadline:
+        lines.append(f"- 决策期限：{deadline}")
+    window = scope.get("source_time_window", {})
+    if isinstance(window, dict) and window.get("start"):
+        lines.append(f"- 来源时间窗：{window.get('start', '')} 至 {window.get('end', '')}")
+    hypotheses = study.get("hypotheses", [])
+    if hypotheses:
+        lines.append("")
+        lines.append("研究假设：")
+        for hypothesis in hypotheses:
+            if isinstance(hypothesis, dict):
+                lines.append(
+                    f"- **{hypothesis.get('id', '')}** {hypothesis.get('statement', '')}"
+                    f"（证伪条件：{hypothesis.get('falsified_if', '')}）"
+                )
+    lines.append("")
+
+    lines.append("## 2. 数据来源与采集")
+    lines.append("")
+    lines.append("| 证据角色 | 来源平台 | 路线 | 目标量 | 访问状态 | 已知偏差 |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
+    source_plan_path = root / "01-sources" / "source-plan.csv"
+    if source_plan_path.is_file():
+        with source_plan_path.open(encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                lines.append(
+                    f"| {row.get('corpus_role', '')} | {row.get('source_family', '')} | "
+                    f"{row.get('route_or_query', '')} | {row.get('target_records', '')} | "
+                    f"{row.get('access_status', '')} | {row.get('known_bias', '')} |"
+                )
+    if manifests.get("runs"):
+        lines.append("")
+        lines.append(
+            f"采集执行：{manifests['runs']} 次运行，请求 {_format_int(manifests['requested_records'])} 条、"
+            f"触达 {_format_int(manifests['reached_records'])} 条、写入 {_format_int(manifests['written_records'])} 条。"
+        )
+        if manifests.get("connectors"):
+            lines.append(f"使用连接器：{', '.join(f'`{c}`' for c in manifests['connectors'])}。")
+        if manifests.get("stop_reasons"):
+            stop_text = "；".join(
+                f"{reason} ×{count}" for reason, count in manifests["stop_reasons"].items()
+            )
+            lines.append(f"停止原因：{stop_text}。")
+    else:
+        lines.append("")
+        lines.append("尚未记录任何采集 manifest；采集量数据缺失。")
+    lines.append("")
+
+    lines.append("## 3. 数据质量与关键信号")
+    lines.append("")
+    total = signals.get("record_count", 0)
+    lines.append(
+        f"证据库共 {_format_int(total)} 条记录（唯一 ID {_format_int(signals.get('unique_record_ids', 0))} 个，"
+        f"唯一来源引用 {_format_int(signals.get('unique_source_refs', 0))} 个）。"
+    )
+    time_range = signals.get("time_range", {})
+    if time_range.get("earliest"):
+        lines.append(
+            f"来源时间跨度：{time_range.get('earliest')} 至 {time_range.get('latest')}"
+            f"（{time_range.get('span_days')} 天）；最大单月占比 {_format_percent(time_range.get('top_month_share'))}"
+            f"（{time_range.get('top_month')}）。"
+        )
+    lines.append("")
+    lines.append("证据等级分布：")
+    lines.append("")
+    lines.append("| 证据等级 | 记录数 | 占比 |")
+    lines.append("| --- | --- | --- |")
+    for level, count in signals.get("evidence_levels", {}).items():
+        share = (count / total) if total else 0
+        lines.append(f"| {level} | {_format_int(count)} | {_format_percent(share)} |")
+    lines.append("")
+    lines.append("证据角色覆盖：")
+    lines.append("")
+    lines.append("| 证据角色 | 记录数 | 占比 |")
+    lines.append("| --- | --- | --- |")
+    for role, count in signals.get("corpus_roles", {}).items():
+        share = (count / total) if total else 0
+        lines.append(f"| {role} | {_format_int(count)} | {_format_percent(share)} |")
+    chain = signals.get("chain_readiness", {})
+    lines.append("")
+    lines.append(
+        f"链条就绪度：问题链（E1/E2）{chain.get('problem_E1_E2', 0)} 条；方案链（E3）"
+        f"{chain.get('solution_E3', 0)} 条；商业/行为链（E4+/E5）{chain.get('commercial_E4p_E5', 0)} 条；"
+        f"反证（E4−）{chain.get('counter_E4m', 0)} 条。"
+    )
+    gate_report = signals.get("gates", {})
+    if gate_report:
+        lines.append("")
+        lines.append("质量门槛：")
+        lines.append("")
+        lines.append("| 门槛 | 要求 | 观察 | 状态 |")
+        lines.append("| --- | --- | --- | --- |")
+        min_gate = gate_report.get("min_evidence_records", {})
+        if min_gate:
+            lines.append(
+                f"| 最小证据量 | {_format_int(min_gate.get('required', 0))} | "
+                f"{_format_int(min_gate.get('observed', 0))} | {min_gate.get('status', '')} |"
+            )
+        family_gate = gate_report.get("max_source_family_share", {})
+        if family_gate:
+            lines.append(
+                f"| 单一来源家族占比上限 | {_format_percent(family_gate.get('limit', 0))} | "
+                f"{_format_percent(family_gate.get('observed', 0))} | {family_gate.get('status', '')} |"
+            )
+        duplicate_gate = gate_report.get("max_normalized_duplicate_rate", {})
+        if duplicate_gate:
+            lines.append(
+                f"| 重复率上限 | {_format_percent(duplicate_gate.get('limit', 0))} | "
+                f"{_format_percent(duplicate_gate.get('observed', 0))} | {duplicate_gate.get('status', '')} |"
+            )
+        for role, item in gate_report.get("required_corpus_roles", {}).items():
+            lines.append(
+                f"| 角色覆盖：{role} | 需要 ≥1 | {_format_int(item.get('observed', 0))} | {item.get('status', '')} |"
+            )
+    lines.append("")
+
+    lines.append("## 4. 需求判断")
+    lines.append("")
+    if judgments:
+        lines.append("| 编号 | 判断 | 状态 | 置信 | 问题/方案/商业/反证链 | 缺口 |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for judgment in judgments:
+            if not isinstance(judgment, dict):
+                continue
+            chains = (
+                f"{len(judgment.get('problem_evidence_ids', []))}/"
+                f"{len(judgment.get('solution_evidence_ids', []))}/"
+                f"{len(judgment.get('commercial_evidence_ids', []))}/"
+                f"{len(judgment.get('counter_evidence_ids', []))}"
+            )
+            gaps = len(judgment.get("gaps", []))
+            lines.append(
+                f"| {judgment.get('id', '')} | {judgment.get('title', '')} | "
+                f"{judgment.get('status', '')} | {judgment.get('confidence', '')} | {chains} | {gaps} |"
+            )
+        next_tests = [
+            f"- **{judgment.get('id', '')}**：{judgment.get('next_test', '')}"
+            for judgment in judgments
+            if isinstance(judgment, dict) and judgment.get("next_test")
+        ]
+        if next_tests:
+            lines.append("")
+            lines.append("下一步验证：")
+            lines.extend(next_tests)
+    else:
+        lines.append("尚无需求判断；研究还未进入决策阶段。")
+    lines.append("")
+
+    lines.append("## 5. 反证与缺口")
+    lines.append("")
+    blocked = []
+    if feasibility and isinstance(feasibility.get("platforms"), list):
+        blocked = [
+            item
+            for item in feasibility["platforms"]
+            if isinstance(item, dict) and item.get("status") not in {"enabled"}
+        ]
+    if blocked:
+        lines.append("不可用路线（已审查、保持禁用）：")
+        for item in blocked:
+            lines.append(
+                f"- {item.get('platform', '')}（{item.get('status', '')}）：{item.get('reason', '')}"
+            )
+        lines.append("")
+    missing_roles = [
+        role
+        for role, item in gate_report.get("required_corpus_roles", {}).items()
+        if item.get("status") != "pass"
+    ]
+    if missing_roles:
+        lines.append(f"证据角色缺口：{', '.join(missing_roles)}。")
+    if chain.get("counter_E4m", 0) == 0 and total:
+        lines.append("证据库中没有 E4− 反证记录；`validated` 判断目前无法通过反证要求。")
+    prohibited = scope.get("prohibited_inferences", [])
+    if prohibited:
+        lines.append("")
+        lines.append("禁止推断：")
+        for item in prohibited:
+            lines.append(f"- {item}")
+    lines.append("")
+
+    lines.append("## 6. 结论边界")
+    lines.append("")
+    insights_path = root / "04-findings" / "insights.md"
+    if insights_path.is_file():
+        lines.append("### 关键发现（Agent 洞察）")
+        lines.append("")
+        lines.append(insights_path.read_text(encoding="utf-8").strip())
+        lines.append("")
+    else:
+        lines.append(
+            "尚未生成 `04-findings/insights.md`；本报告只包含确定性信号，"
+            "场景与语义层发现由 Agent 按 runbook 补充。"
+        )
+    lines.append("")
+    lines.append(
+        "本报告基于便利样本与配置门槛。记录数不是用户数，检索地区不是常住地，"
+        "任何比例都不能外推为总体市场规模。CLI 通过只说明结构与证据链检查通过，"
+        "不证明需求真实性、代表性或因果。"
+    )
+    return "\n".join(lines) + "\n"
+
+
+def command_report(args: argparse.Namespace) -> int:
+    root = Path(args.study_dir).resolve()
+    study_path = root / "study.json"
+    if not study_path.is_file():
+        print(f"missing study.json under {root}", file=sys.stderr)
+        return 2
+    try:
+        study = _load_json(study_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"cannot parse study.json: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(study, dict):
+        print("study.json must contain an object", file=sys.stderr)
+        return 2
+
+    signals_path = root / "04-findings" / "signals.json"
+    if signals_path.is_file():
+        try:
+            signals = _load_json(signals_path)
+        except (OSError, json.JSONDecodeError):
+            signals = _compute_signals(root, study)
+    else:
+        signals = _compute_signals(root, study)
+    if not isinstance(signals, dict):
+        signals = {}
+
+    audit_payload: dict[str, Any] | None = None
+    audit_path = root / "05-audit" / "latest.json"
+    if audit_path.is_file():
+        try:
+            loaded_audit = _load_json(audit_path)
+            if isinstance(loaded_audit, dict):
+                audit_payload = loaded_audit
+        except (OSError, json.JSONDecodeError):
+            audit_payload = None
+    if audit_payload is None:
+        audit_payload = audit_study(root, "full").as_dict()
+
+    judgments: list[Any] = []
+    judgments_path = root / "04-findings" / "demand-judgments.json"
+    if judgments_path.is_file():
+        try:
+            loaded = _load_json(judgments_path)
+            if isinstance(loaded, list):
+                judgments = loaded
+        except (OSError, json.JSONDecodeError):
+            judgments = []
+
+    feasibility = None
+    feasibility_path = root / "01-sources" / "feasibility.json"
+    if feasibility_path.is_file():
+        try:
+            loaded_feasibility = _load_json(feasibility_path)
+            if isinstance(loaded_feasibility, dict):
+                feasibility = loaded_feasibility
+        except (OSError, json.JSONDecodeError):
+            feasibility = None
+
+    manifests = _aggregate_manifests(root / "01-sources" / "manifests")
+    report_text = _render_report(
+        root, study, signals, manifests, audit_payload, judgments, feasibility
+    )
+    output = Path(args.output) if args.output else root / "06-report" / "report.md"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(report_text, encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "report": str(output),
+                "audit_status": audit_payload.get("status"),
+                "judgments": len(judgments),
+                "manifest_runs": manifests.get("runs", 0),
+                "meaning": (
+                    "The report assembles configured artifacts. It does not certify truth, "
+                    "representativeness, market size, or causality."
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sure",
@@ -1883,6 +2904,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="copy and enable a platform route template; repeat for multiple platforms",
     )
     init_parser.set_defaults(func=command_init)
+
+    plan_parser = subparsers.add_parser(
+        "plan",
+        help="turn goal, region, sample size, and platform types into a study workspace, "
+        "quotas, feasibility report, and collection tasks",
+    )
+    plan_parser.add_argument("study_dir")
+    plan_parser.add_argument("--goal", required=True, help="research target: product, user, or scene")
+    plan_parser.add_argument(
+        "--region",
+        required=True,
+        choices=("cn", "overseas", "global"),
+        help="sampling region; recorded as context, not verified residence",
+    )
+    plan_parser.add_argument(
+        "--sample-size", required=True, type=int, help="target record volume, e.g. 100000"
+    )
+    plan_parser.add_argument(
+        "--platform-types",
+        required=True,
+        help="comma-separated: forum,social,video,ecommerce,crowdfunding",
+    )
+    plan_parser.add_argument("--market", help="optional market label such as us or de")
+    plan_parser.add_argument("--languages", help="comma-separated language codes, e.g. en,zh")
+    plan_parser.add_argument(
+        "--time-window", help="START:END ISO dates, e.g. 2025-01-01:2026-08-31"
+    )
+    plan_parser.add_argument("--decision", help="decision question this study must inform")
+    plan_parser.add_argument("--study-id", help="defaults to a generated dated id")
+    plan_parser.add_argument("--title", help="defaults to the goal text")
+    plan_parser.set_defaults(func=command_plan)
+
+    signals_parser = subparsers.add_parser(
+        "signals", help="compute deterministic corpus signals from evidence.jsonl"
+    )
+    signals_parser.add_argument("study_dir")
+    signals_parser.set_defaults(func=command_signals)
+
+    report_parser = subparsers.add_parser(
+        "report", help="assemble a Chinese research-status report from study artifacts"
+    )
+    report_parser.add_argument("study_dir")
+    report_parser.add_argument(
+        "--output", help="report path; defaults to 06-report/report.md"
+    )
+    report_parser.set_defaults(func=command_report)
 
     check_parser = subparsers.add_parser("check", help="audit one research stage")
     check_parser.add_argument("study_dir")

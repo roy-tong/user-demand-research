@@ -13,7 +13,7 @@
 | 想学习这套方法的产品经理或研究者 | [实操文章](https://roy-tong.github.io/notes/scene-user-demand-evidence-research/) | 贯穿案例、每一步的动作和判断边界 |
 | 想让 Agent 执行研究的人 | [Agent Skill](skills/user-demand-research/SKILL.md) | 可安装的工作协议、模板和安全边界 |
 | 正在本地跑研究的 Agent | [执行手册](skills/user-demand-research/references/agent-runbook.md) | 固定目录、命令、阶段门和交接格式 |
-| 想检查研究文件是否完整的人 | [SURE CLI](skills/user-demand-research/scripts/sure.py) | 无第三方依赖的初始化与审计工具 |
+| 想检查研究文件是否完整的人 | [SURE CLI](skills/user-demand-research/scripts/sure.py) | 无第三方依赖的计划、审计、信号与报告工具 |
 
 人类版解释为什么这样做；Agent 版规定具体要创建什么、什么时候停止；CLI 只负责确定性检查。三者共用同一套 E0–E5 证据模型。
 
@@ -43,6 +43,44 @@ examples/sample-study/05-audit/latest.md
 5. 标为 `validated` 的需求判断是否同时具备问题、方案接受、商业/行为和反证。
 
 `pass` 只说明配置的结构和证据门槛通过，不证明样例中的合成需求真实存在，也不证明总体市场比例。
+
+## 从研究目标、范围、样本量和平台类型直接生成研究计划
+
+当手里只有一句话时，把四个输入交给 `plan`：研究目标、研究范围（国内/海外/全球，可加市场标注）、样本容量、平台类型（论坛/社媒/视频/电商/众筹）：
+
+```bash
+python3 skills/user-demand-research/scripts/sure.py plan ./studies/ai-glasses-overseas \
+  --goal "AI 眼镜在海外社媒的用户不满与替代方案" \
+  --region overseas \
+  --sample-size 100000 \
+  --platform-types forum,social,video \
+  --market us \
+  --decision "是否为维修工程师制作 AI 眼镜远程指导原型"
+```
+
+`plan` 会把范围和平台类型解析成具体平台，再对照开源连接器注册表：只有 `supported` 或 `historical_only` 的平台会被启用，被 block 或没有可用连接器的平台连同原因写入可行性报告。它同时完成：
+
+1. 按平台类型权重把样本量拆成平台配额（单一平台不超过 65%，并给出告警）；
+2. 按五类证据角色把配额拆到来源计划和平台路线表；
+3. 生成 `01-sources/feasibility.json`（可行性）和 `01-sources/tasks.md`（采集任务清单，含连接器版本、访问前置条件、manifest 要求和 Reddit 2026-09-30 登记期限等政策提醒）；
+4. 预填 `study.json` 的范围、时间窗、语言、允许来源和按样本量缩放的最低证据门槛。
+
+国内范围的电商请求会明确失败而不是降级：
+
+```bash
+python3 skills/user-demand-research/scripts/sure.py plan ./studies/cn-ecommerce \
+  --goal "国产 AI 眼镜电商评论" --region cn --sample-size 50000 --platform-types ecommerce
+# exit code 3: jd 和 taobao 的开源连接器均为 blocked，无可行平台
+```
+
+`plan` 的产物是设计草案，仍需补全决策、假设、证伪条件并通过 design 检查。采集执行由 Agent 按任务清单进行，每次运行写 manifest；之后两条命令收口：
+
+```bash
+python3 skills/user-demand-research/scripts/sure.py signals ./studies/ai-glasses-overseas   # 确定性信号 → 04-findings/signals.json
+python3 skills/user-demand-research/scripts/sure.py report ./studies/ai-glasses-overseas    # 汇编调研报告 → 06-report/report.md
+```
+
+`signals` 只计算可复核的分布与门槛差值（等级、角色、来源集中度、重复率、时间跨度、链条就绪度），语义层发现由 Agent 写入 `04-findings/insights.md` 并引用证据记录。`report` 把研究契约、来源计划、manifest 总量、信号、需求判断、被禁路线和解释边界汇编成中文报告；完整检查未通过时报告顶部保留失败横幅，结论只能停留在研究状态。
 
 ## 为一个真实问题建立研究目录
 
@@ -226,10 +264,11 @@ ln -s "$(pwd)/user-demand-research/skills/user-demand-research" ~/.codex/skills/
 | `skills/user-demand-research/references/open-source-connectors.md` | GitHub 项目的四道审查与选用结论 |
 | `skills/user-demand-research/references/connector-contract.md` | 连接器 manifest、原始记录和证据交接格式 |
 | `skills/user-demand-research/assets/open-source-connectors.json` | 本地 Agent 可读取的机器清单 |
+| `skills/user-demand-research/assets/platform-map.json` | 范围 × 平台类型 → 平台的解析地图 |
 | `skills/user-demand-research/references/*-research.md` | 七个平台的查询、采样、合规和审计细则 |
 | `skills/user-demand-research/assets/study-template/` | CLI 使用的研究目录模板 |
 | `skills/user-demand-research/assets/*-route-template.csv` | 平台检索与监听路线模板 |
-| `skills/user-demand-research/scripts/sure.py` | 初始化和阶段审计 CLI |
+| `skills/user-demand-research/scripts/sure.py` | plan / init / check / signals / report / connectors 命令 |
 | `examples/sample-study/` | 合成数据完整样例 |
 | `tests/` | CLI 正向与失败测试 |
 

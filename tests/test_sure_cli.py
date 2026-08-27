@@ -432,5 +432,165 @@ class SureCliTests(unittest.TestCase):
         )
 
 
+class PlanSignalsReportTests(unittest.TestCase):
+    def test_plan_overseas_study_allocates_quotas_and_tasks(self) -> None:
+        import csv as csv_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "overseas"
+            completed = run_cli(
+                "plan",
+                str(target),
+                "--goal",
+                "AI glasses complaints overseas",
+                "--region",
+                "overseas",
+                "--sample-size",
+                "100000",
+                "--platform-types",
+                "forum,social,video",
+                "--market",
+                "us",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual(["reddit", "x", "youtube"], payload["feasible_platforms"])
+            self.assertEqual(100000, sum(payload["platform_quotas"].values()))
+
+            study = json.loads((target / "study.json").read_text(encoding="utf-8"))
+            self.assertEqual(1000, study["quality_gates"]["min_evidence_records"])
+            self.assertEqual(["overseas", "us"], study["scope"]["markets"])
+            self.assertEqual(["reddit", "x", "youtube"], study["scope"]["allowed_sources"])
+            self.assertEqual(100000, study["plan"]["sample_target"])
+            self.assertTrue(study["source_adapters"]["reddit"]["enabled"])
+            self.assertTrue(study["source_adapters"]["x"]["enabled"])
+            self.assertTrue(study["source_adapters"]["youtube"]["enabled"])
+
+            with (target / "01-sources/reddit-routes.csv").open(encoding="utf-8-sig", newline="") as handle:
+                reddit_rows = list(csv_module.DictReader(handle))
+            self.assertEqual(
+                payload["platform_quotas"]["reddit"],
+                sum(int(row["target_records"]) for row in reddit_rows),
+            )
+            with (target / "01-sources/source-plan.csv").open(encoding="utf-8-sig", newline="") as handle:
+                plan_rows = list(csv_module.DictReader(handle))
+            self.assertEqual(15, len(plan_rows))
+            self.assertEqual(
+                payload["platform_quotas"]["x"],
+                sum(
+                    int(row["target_records"])
+                    for row in plan_rows
+                    if row["source_family"] == "x"
+                ),
+            )
+
+            feasibility = json.loads(
+                (target / "01-sources/feasibility.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(3, len([p for p in feasibility["platforms"] if p["status"] == "enabled"]))
+            tasks = (target / "01-sources/tasks.md").read_text(encoding="utf-8")
+            self.assertIn("reddit-praw", tasks)
+            self.assertIn("2026-09-30", tasks)
+
+            design_check = run_cli("check", str(target), "--stage", "design")
+            self.assertEqual(1, design_check.returncode)
+
+    def test_plan_cn_ecommerce_fails_visibly_without_workaround(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "cn-ecommerce"
+            completed = run_cli(
+                "plan",
+                str(target),
+                "--goal",
+                "国产 AI 眼镜电商评论",
+                "--region",
+                "cn",
+                "--sample-size",
+                "50000",
+                "--platform-types",
+                "ecommerce",
+            )
+            self.assertEqual(3, completed.returncode)
+            payload = json.loads(completed.stdout)
+            self.assertEqual([], payload["feasible_platforms"])
+            statuses = {
+                item["platform"]: item["status"] for item in payload["unavailable_platforms"]
+            }
+            self.assertEqual({"jd": "blocked", "taobao": "blocked"}, statuses)
+            study = json.loads((target / "study.json").read_text(encoding="utf-8"))
+            self.assertEqual([], study["plan"]["feasible_platforms"])
+            self.assertEqual(2, len(study["plan"]["unavailable_platforms"]))
+            tasks = (target / "01-sources/tasks.md").read_text(encoding="utf-8")
+            self.assertIn("Unavailable routes", tasks)
+
+    def test_plan_rejects_unknown_platform_type(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            completed = run_cli(
+                "plan",
+                str(Path(directory) / "bad"),
+                "--goal",
+                "x",
+                "--region",
+                "overseas",
+                "--sample-size",
+                "1000",
+                "--platform-types",
+                "telepathy",
+            )
+            self.assertEqual(2, completed.returncode)
+            self.assertIn("unknown platform types", completed.stderr)
+
+    def test_signals_computes_deterministic_corpus_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "sample"
+            shutil.copytree(SAMPLE, target)
+            completed = run_cli("signals", str(target))
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual(7, payload["record_count"])
+            self.assertEqual(2, payload["chain_readiness"]["problem_E1_E2"])
+            self.assertEqual("pass", payload["gates"]["min_evidence_records"]["status"])
+            self.assertTrue((target / "04-findings/signals.json").is_file())
+
+    def test_report_assembles_passing_sample_study(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "sample"
+            shutil.copytree(SAMPLE, target)
+            completed = run_cli("report", str(target))
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual("pass", payload["audit_status"])
+            self.assertEqual(1, payload["judgments"])
+            text = (target / "06-report/report.md").read_text(encoding="utf-8")
+            self.assertIn("调研报告", text)
+            self.assertIn("## 3. 数据质量与关键信号", text)
+            self.assertIn("## 4. 需求判断", text)
+            self.assertIn("禁止推断", text)
+
+    def test_report_warns_when_full_check_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "fresh"
+            planned = run_cli(
+                "plan",
+                str(target),
+                "--goal",
+                "AI glasses complaints",
+                "--region",
+                "overseas",
+                "--sample-size",
+                "2000",
+                "--platform-types",
+                "social",
+            )
+            self.assertEqual(0, planned.returncode, planned.stdout + planned.stderr)
+            completed = run_cli("report", str(target))
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertEqual("fail", payload["audit_status"])
+            text = (target / "06-report/report.md").read_text(encoding="utf-8")
+            self.assertIn("未通过", text)
+            self.assertIn("研究状态输出", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-08-27",
+  "scope": "Maps a research region and platform type to concrete platforms, then resolves each platform against the reviewed connector registry. The map encodes availability, not permission: every enabled platform still needs study-specific access, policy, and data-rights review before collection.",
+  "platform_types": {
+    "forum": "Long-form discussion communities, Q&A threads, and interest boards",
+    "social": "Short-post social feeds and public conversations",
+    "video": "Video platforms with searchable comments and metadata",
+    "ecommerce": "Marketplace product reviews, Q&A, and transaction-linked feedback",
+    "crowdfunding": "Crowdfunding campaigns, creator updates, and backer-facing records"
+  },
+  "regions": {
+    "overseas": {
+      "platforms_by_type": {
+        "forum": ["reddit"],
+        "social": ["x"],
+        "video": ["youtube"],
+        "ecommerce": ["amazon"],
+        "crowdfunding": ["kickstarter"]
+      }
+    },
+    "cn": {
+      "platforms_by_type": {
+        "forum": ["zhihu"],
+        "social": ["weibo"],
+        "video": ["bilibili"],
+        "ecommerce": ["jd", "taobao"],
+        "crowdfunding": ["modian"]
+      }
+    },
+    "global": {
+      "platforms_by_type": {
+        "forum": ["reddit"],
+        "social": ["x"],
+        "video": ["youtube"],
+        "ecommerce": ["amazon", "jd", "taobao"],
+        "crowdfunding": ["kickstarter"]
+      }
+    }
+  },
+  "platforms": {
+    "reddit": {"connector_id": "reddit-praw"},
+    "x": {"connector_id": "x-tweepy"},
+    "youtube": {"connector_id": "youtube-google-api-python-client"},
+    "amazon": {"connector_id": "amazon-reviews-2023"},
+    "jd": {"connector_id": "jd-comment-spider"},
+    "taobao": {"connector_id": "taobao-review-playwright"},
+    "kickstarter": {"connector_id": "kickstarter-ksinsights"},
+    "zhihu": {
+      "connector_id": null,
+      "status_note": "No reviewed open-source connector yet; manual lawful routes only, recorded as an evidence gap."
+    },
+    "weibo": {
+      "connector_id": null,
+      "status_note": "No reviewed open-source connector yet; official open platform APIs serve account holders' own data, not third-party research."
+    },
+    "bilibili": {
+      "connector_id": null,
+      "status_note": "No reviewed open-source connector yet; treat as an evidence gap rather than a scraping target."
+    },
+    "modian": {
+      "connector_id": null,
+      "status_note": "No reviewed open-source connector yet; small manual public examples remain discovery-only."
+    }
+  }
+}

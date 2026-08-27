@@ -29,7 +29,7 @@ Use the bundled route template and enable the matching `study.json.source_adapte
 
 ## Use the stage-gated workspace
 
-For a new study, create the standard artifact tree:
+For a new study, create the standard artifact tree. When the user supplies a research goal, region, sample size, and platform types, use the intake command:
 
 ```bash
 python3 scripts/sure.py init /ABSOLUTE/PATH/TO/STUDY \
@@ -40,6 +40,16 @@ python3 scripts/sure.py init /ABSOLUTE/PATH/TO/STUDY \
   --platform x \
   --platform youtube
 ```
+
+```bash
+python3 scripts/sure.py plan /ABSOLUTE/PATH/TO/STUDY \
+  --goal "AI 眼镜在海外社媒的用户不满与替代方案" \
+  --region overseas \
+  --sample-size 100000 \
+  --platform-types forum,social,video
+```
+
+`plan` resolves the region and platform types against the platform map and the connector registry, enables only non-blocked platforms, allocates quotas across platforms and evidence roles, and writes a feasibility report plus collection tasks. Exit code 3 means no platform has an enabled connector: report the gap; never substitute a commercial provider, merchant API, or login-based scraper. A `plan` output is a draft Design contract, not a passed one.
 
 Repeat `--platform` only for platforms in scope; omit the flag for a study without these platform sources. Each flag copies `01-sources/<platform>-routes.csv` and enables that adapter. Fill its access, policy-review, retention, query, and concentration placeholders before the Design gate.
 
@@ -56,10 +66,13 @@ The command refuses to overwrite a non-empty directory. The generated paths are 
 
 - `study.json` — decision, scope, hypotheses, falsifiers, quality gates, stop/restart rules;
 - `01-sources/source-plan.csv` — evidence role, route, target, cap, access status, known bias;
+- `01-sources/feasibility.json` and `01-sources/tasks.md` — plan-time platform feasibility and collection tasks;
 - `02-data/evidence.jsonl` — canonical evidence index with stable source references;
 - `03-codebook/` — versioned definitions and human gold set;
 - `04-findings/demand-judgments.json` — evidence-linked product judgments;
-- `05-audit/` — machine-readable and human-readable checks.
+- `04-findings/signals.json` — deterministic corpus signals from `sure.py signals`;
+- `05-audit/` — machine-readable and human-readable checks;
+- `06-report/report.md` — the assembled Chinese research-status report from `sure.py report`.
 
 Run the gate matching the current stage:
 
@@ -68,6 +81,15 @@ python3 scripts/sure.py check STUDY --stage design --write-report
 python3 scripts/sure.py check STUDY --stage evidence --write-report
 python3 scripts/sure.py check STUDY --stage full --write-report
 ```
+
+After evidence exists, compute deterministic signals and assemble the report:
+
+```bash
+python3 scripts/sure.py signals STUDY
+python3 scripts/sure.py report STUDY
+```
+
+Semantic findings go to `04-findings/insights.md`, written with evidence-record references — never merged into `signals.json`. The report keeps a visible failure banner while the full check fails; do not remove it.
 
 Repair a failed gate or report the evidence gap. Do not bypass the check by collecting unrelated easy volume or relabeling a conclusion.
 
