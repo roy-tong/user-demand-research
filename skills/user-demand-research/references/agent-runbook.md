@@ -17,6 +17,8 @@ Do not ask the user to choose a mode when it follows from the available artifact
 
 ## 2. Create a study workspace
 
+When the host agent connects through MCP instead of the CLI, the same operations arrive as `sure_plan`, `sure_init`, `sure_check`, `sure_signals`, `sure_report`, `sure_connectors`, and `sure_platform_map` tools (server: `scripts/sure_mcp.py`). Tool results embed the CLI exit code: `1` means a failed gate and `3` means no feasible platform — both are research statuses to act on, not retryable errors.
+
 When the user supplies a research goal, region, sample size, and platform types, use the intake command instead of assembling these by hand:
 
 ```bash

@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | 想学习这套方法的产品经理或研究者 | [实操文章](https://roy-tong.github.io/notes/scene-user-demand-evidence-research/) | 贯穿案例、每一步的动作和判断边界 |
 | 想让 Agent 执行研究的人 | [Agent Skill](skills/user-demand-research/SKILL.md) | 可安装的工作协议、模板和安全边界 |
+| 用 MCP 客户端的 Agent | [MCP 服务器](skills/user-demand-research/scripts/sure_mcp.py) | 同一组确定性操作以 MCP 工具接入 |
 | 正在本地跑研究的 Agent | [执行手册](skills/user-demand-research/references/agent-runbook.md) | 固定目录、命令、阶段门和交接格式 |
 | 想检查研究文件是否完整的人 | [SURE CLI](skills/user-demand-research/scripts/sure.py) | 无第三方依赖的计划、审计、信号与报告工具 |
 
@@ -230,15 +231,56 @@ ln -s "$(pwd)/user-demand-research/skills/user-demand-research" ~/.codex/skills/
 不要继续采集，先输出字段缺口、来源偏差、最高可支持的证据等级、反证和最便宜的下一项验证。
 ```
 
-## 为什么是 Skill + CLI，而不是先做 MCP
+## 三种接入方式：Skill、CLI、MCP
 
-这套方法的主要问题是研究步骤、文件结构和判断门槛不稳定，不是缺少一个常驻服务。
+同一套能力提供三个入口，按 Agent 的形态选择，也可以组合使用：
 
-- Skill 负责研究判断、模式选择和安全边界；
-- CLI 负责目录初始化、字段检查、重复与集中度检查、证据链验收；
-- MCP 适合后续接入有授权的数据库、工单系统或平台 API，不适合替代研究协议本身。
+- **Skill**（`skills/user-demand-research/SKILL.md`）：研究判断、模式选择和安全边界。给会读协议的 Agent（Codex、Claude Code 等）自动发现和遵循。
+- **CLI**（`scripts/sure.py`）：确定性操作，`plan / init / check / signals / report / connectors`。给脚本、CI 和直接执行。
+- **MCP 服务器**（`scripts/sure_mcp.py`）：把 CLI 的同一组操作暴露为 MCP 工具，给 MCP-first 的客户端（Claude Code、ZCode、Cursor、Cline、Windsurf 等）。纯标准库实现 stdio 传输，无第三方依赖、无网络行为；服务器只搬运确定性操作，不增加研究判断——判断仍属于 Skill 协议。
 
-因此当前版本不要求 MCP。需要连接企业内部数据源时，可以在不改变 SURE 数据合同的前提下增加 MCP 适配器。
+MCP 工具清单：`sure_plan`、`sure_init`、`sure_check`、`sure_signals`、`sure_report`、`sure_connectors`、`sure_platform_map`。工具结果内嵌 CLI 退出码：`0` 成功，`1` 门槛未过（合法的研究状态），`3` 无可行平台（同样是研究状态，要求报告缺口而不是换路线），`2` 用法错误（标记为工具错误）。
+
+### 注册到本地 Agent
+
+Claude Code：
+
+```bash
+claude mcp add --scope user sure-research -- python3 /ABSOLUTE/PATH/user-demand-research/skills/user-demand-research/scripts/sure_mcp.py
+```
+
+JSON 风格配置（Cursor `.cursor/mcp.json`、Cline、Claude Desktop `claude_desktop_config.json` 等）：
+
+```json
+{
+  "mcpServers": {
+    "sure-research": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/user-demand-research/skills/user-demand-research/scripts/sure_mcp.py"]
+    }
+  }
+}
+```
+
+TOML 风格配置（Codex 等）：
+
+```toml
+[mcp_servers.sure-research]
+command = "python3"
+args = ["/ABSOLUTE/PATH/user-demand-research/skills/user-demand-research/scripts/sure_mcp.py"]
+```
+
+注册后可以直接对 Agent 说：
+
+```text
+用 sure-research 的 sure_plan 建一个研究：
+目标「AI 眼镜在海外社媒的用户不满与替代方案」，范围海外，样本量 10 万，
+平台类型论坛+社媒+视频。然后告诉我可行性结论和下一步。
+```
+
+Agent 调用 `sure_plan` 得到配额与任务清单，按 Skill 协议补全设计契约，采集后用 `sure_signals` 和 `sure_report` 收口。判断规则（证据等级、反证、禁止推断）不在 MCP 工具里，仍在 Skill 协议中——这是刻意的分层：MCP 只负责把确定性操作送进任何客户端。
+
+后续接入有授权的数据库、工单系统或平台 API 时，可以在不改变 SURE 数据合同的前提下增加新的 MCP 适配器。
 
 ## 边界
 
@@ -269,6 +311,7 @@ ln -s "$(pwd)/user-demand-research/skills/user-demand-research" ~/.codex/skills/
 | `skills/user-demand-research/assets/study-template/` | CLI 使用的研究目录模板 |
 | `skills/user-demand-research/assets/*-route-template.csv` | 平台检索与监听路线模板 |
 | `skills/user-demand-research/scripts/sure.py` | plan / init / check / signals / report / connectors 命令 |
+| `skills/user-demand-research/scripts/sure_mcp.py` | 纯标准库 MCP stdio 服务器，暴露同一组命令为 MCP 工具 |
 | `examples/sample-study/` | 合成数据完整样例 |
 | `tests/` | CLI 正向与失败测试 |
 

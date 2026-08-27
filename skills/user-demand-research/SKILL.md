@@ -9,6 +9,8 @@ metadata:
 
 Use SURE — Structured User Research with Evidence — to turn source material into a traceable product decision. Collection volume is an input, not proof of demand.
 
+The same deterministic operations are available as MCP tools via [scripts/sure_mcp.py](scripts/sure_mcp.py) for MCP-first agents; this Skill remains the source of judgment, mode selection, and safety boundaries regardless of the entry point.
+
 ## Select the mode from available artifacts
 
 | What the user has | Mode | First output |
