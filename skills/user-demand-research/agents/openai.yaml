@@ -1,4 +1,4 @@
 interface:
   display_name: "User Demand Research (SURE)"
-  short_description: "Turn user feedback into auditable demand evidence"
-  default_prompt: "Use $user-demand-research to audit the evidence for this product-demand claim and design the next falsification test."
+  short_description: "Build auditable demand evidence and decisions"
+  default_prompt: "Use $user-demand-research to create a stage-gated study for this product decision, including the source plan, evidence rules, audit checks, and next falsification test. For any platform source, select only a non-blocked GitHub OSS connector from the registry, pin its revision, write the access and data-rights basis, and apply the platform hierarchy gates."

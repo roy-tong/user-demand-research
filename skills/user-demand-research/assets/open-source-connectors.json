@@ -1,0 +1,260 @@
+{
+  "schema_version": "1.0",
+  "reviewed_at": "2026-08-27",
+  "scope": "Open-source GitHub projects that an independent third-party researcher could inspect, fork, or wrap for SURE studies.",
+  "decisions": {
+    "supported": "May be selected after study-specific platform, privacy, retention, and data-rights review.",
+    "historical_only": "May be selected only for the stated historical dataset; it is not a live-market connector.",
+    "blocked": "Kept as a reviewed negative example. The SURE CLI must not enable it."
+  },
+  "connectors": [
+    {
+      "id": "reddit-praw",
+      "platform": "reddit",
+      "upstream_repo": "praw-dev/praw",
+      "upstream_url": "https://github.com/praw-dev/praw",
+      "reviewed_revision": "855f48e075935a052b1d71243e60e41cbc260ced",
+      "license": "BSD-2-Clause",
+      "last_push_at_review": "2026-08-24",
+      "tier": "official_api_client",
+      "decision": "supported",
+      "allowed_access_bases": ["official_api"],
+      "acquisition_mechanism": "Reddit Data API through OAuth",
+      "usable_scope": ["submissions", "comments", "thread hierarchy", "subreddit routes"],
+      "limits": [
+        "Requires Reddit-approved API access and an identifiable user agent.",
+        "Commercial use or research beyond permitted limits may require a separate agreement.",
+        "The code license does not grant rights to retain or republish Reddit user content.",
+        "2026 access transition: existing Data API apps must be registered by 2026-09-30 to remain in good standing; new self-service access is closed and requires approval; the long-term direction is the Reddit Developer Platform (Devvit)."
+      ],
+      "policy_watch": {
+        "noted_at": "2026-08-27",
+        "summary": "Reddit's 2026 plan for the public Data API requires every existing Data API app to register by 2026-09-30 to remain in good standing. New self-service access is closed under the Responsible Builder Policy and needs an approval request. The stated long-term direction is migration to the Reddit Developer Platform (Devvit), with migration-program participants committing to migrate by 2026-12-31.",
+        "action_required": "Confirm the study's API app is registered before 2026-09-30; verify the approved access basis and limits; re-review this connector once the Devvit migration path affects research access.",
+        "recheck_by": "2026-09-30",
+        "sources": [
+          "https://www.reddit.com/r/redditdev/comments/1vgbm9c/our_plans_for_the_future_of_reddits_public_data/",
+          "https://developers.reddit.com/docs/guides/migrate/public-api",
+          "https://redditinc.com/policies/data-api-terms"
+        ]
+      },
+      "policy_url": "https://redditinc.com/policies/data-api-terms"
+    },
+    {
+      "id": "x-tweepy",
+      "platform": "x",
+      "upstream_repo": "tweepy/tweepy",
+      "upstream_url": "https://github.com/tweepy/tweepy",
+      "reviewed_revision": "c1978d643ecce491929084e4290b35f57e4921ad",
+      "license": "MIT",
+      "last_push_at_review": "2026-07-02",
+      "tier": "official_api_client",
+      "decision": "supported",
+      "allowed_access_bases": ["official_api"],
+      "acquisition_mechanism": "X API",
+      "usable_scope": ["post search", "conversation IDs", "replies", "quotes", "reposts"],
+      "limits": [
+        "Requires an X API tier that covers the intended search window and volume.",
+        "Deletion, redistribution, privacy, and restricted-use rules still apply.",
+        "Do not combine Tweepy with browser automation or internal endpoints."
+      ],
+      "policy_url": "https://docs.x.com/developer-guidelines"
+    },
+    {
+      "id": "youtube-google-api-python-client",
+      "platform": "youtube",
+      "upstream_repo": "googleapis/google-api-python-client",
+      "upstream_url": "https://github.com/googleapis/google-api-python-client",
+      "reviewed_revision": "b0089df6768a806c3d837f71b5ba7eca79934e5a",
+      "license": "Apache-2.0",
+      "last_push_at_review": "2026-08-26",
+      "tier": "official_api_client",
+      "decision": "supported",
+      "allowed_access_bases": ["official_api"],
+      "acquisition_mechanism": "YouTube Data API through Google's discovery client",
+      "usable_scope": ["video search", "channel metadata", "comment threads", "replies"],
+      "limits": [
+        "Requires a Google Cloud project and YouTube Data API quota.",
+        "API data refresh, deletion, display, privacy, and storage rules still apply.",
+        "Video transcripts are not supplied by the Data API as a general public research endpoint."
+      ],
+      "policy_url": "https://developers.google.com/youtube/terms/developer-policies"
+    },
+    {
+      "id": "amazon-reviews-2023",
+      "platform": "amazon",
+      "upstream_repo": "hyp1231/AmazonReviews2023",
+      "upstream_url": "https://github.com/hyp1231/AmazonReviews2023",
+      "reviewed_revision": "b18fdf54bd46013d60799684f7a4eb80d8501d1a",
+      "license": "MIT",
+      "last_push_at_review": "2025-03-11",
+      "tier": "historical_dataset_code",
+      "decision": "historical_only",
+      "allowed_access_bases": ["historical_dataset"],
+      "acquisition_mechanism": "Processing code for the McAuley Lab Amazon Reviews 2023 dataset",
+      "usable_scope": ["reviews through September 2023", "ASIN and parent ASIN", "rating", "verified purchase", "helpfulness", "item metadata"],
+      "limits": [
+        "This is a historical dataset, not a live Amazon connector.",
+        "The GitHub repository's MIT license covers its code; the dataset's reuse basis must be reviewed separately.",
+        "It cannot measure current assortment, current sentiment, current price, or post-September-2023 changes."
+      ],
+      "data_url": "https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023",
+      "policy_url": "https://www.amazon.com/gp/help/customer/display.html?nodeId=GLSBYFE9MGKKQXXM"
+    },
+    {
+      "id": "amazon-reviews-graphql",
+      "platform": "amazon",
+      "upstream_repo": "ae9is/amazon-reviews",
+      "upstream_url": "https://github.com/ae9is/amazon-reviews",
+      "reviewed_revision": "033553bb9036665ac5e2503745202b92be933884",
+      "license": "AGPL-3.0",
+      "last_push_at_review": "2024-07-08",
+      "tier": "historical_dataset_service",
+      "decision": "historical_only",
+      "allowed_access_bases": ["historical_dataset"],
+      "acquisition_mechanism": "Self-hosted GraphQL service over Amazon Reviews 2023",
+      "usable_scope": ["review lookup by ASIN", "normalized historical review service"],
+      "limits": [
+        "It adds a query service but no newer data than the underlying historical dataset.",
+        "AGPL obligations must be reviewed before modification or network deployment.",
+        "Dataset reuse rights remain separate from the service's code license."
+      ],
+      "data_url": "https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023",
+      "policy_url": "https://www.amazon.com/gp/help/customer/display.html?nodeId=GLSBYFE9MGKKQXXM"
+    },
+    {
+      "id": "x-snscrape",
+      "platform": "x",
+      "upstream_repo": "JustAnotherArchivist/snscrape",
+      "upstream_url": "https://github.com/JustAnotherArchivist/snscrape",
+      "reviewed_revision": "614d4c2029a62d348ca56598f87c425966aaec66",
+      "license": "GPL-3.0",
+      "last_push_at_review": "2023-11-15",
+      "tier": "unofficial_scraper",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "Non-API scraping",
+      "usable_scope": [],
+      "limits": [
+        "X's current developer guidance requires official API access and prohibits scraping/browser automation.",
+        "The X implementation is stale relative to current platform behavior."
+      ],
+      "policy_url": "https://docs.x.com/developer-guidelines"
+    },
+    {
+      "id": "x-twikit",
+      "platform": "x",
+      "upstream_repo": "d60/twikit",
+      "upstream_url": "https://github.com/d60/twikit",
+      "reviewed_revision": "c3b7220866f8582009fe2d1155b6fe92192a2711",
+      "license": "MIT",
+      "last_push_at_review": "2026-03-10",
+      "tier": "unofficial_internal_api",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "X internal API without an official API key",
+      "usable_scope": [],
+      "limits": [
+        "A current codebase and permissive code license do not make the access mechanism permitted.",
+        "X's current guidance prohibits non-API automation and scraping."
+      ],
+      "policy_url": "https://docs.x.com/developer-guidelines"
+    },
+    {
+      "id": "youtube-comment-downloader",
+      "platform": "youtube",
+      "upstream_repo": "egbertbouman/youtube-comment-downloader",
+      "upstream_url": "https://github.com/egbertbouman/youtube-comment-downloader",
+      "reviewed_revision": "9771beeb5be3c9648af011fe10cd813187550db0",
+      "license": "MIT",
+      "last_push_at_review": "2026-07-30",
+      "tier": "unofficial_scraper",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "Comment download without the YouTube Data API",
+      "usable_scope": [],
+      "limits": [
+        "YouTube's developer policies prohibit directly or indirectly obtaining scraped YouTube data.",
+        "Do not use it as a fallback when API quota is unavailable."
+      ],
+      "policy_url": "https://developers.google.com/youtube/terms/developer-policies"
+    },
+    {
+      "id": "youtube-transcript-api",
+      "platform": "youtube",
+      "upstream_repo": "jdepoix/youtube-transcript-api",
+      "upstream_url": "https://github.com/jdepoix/youtube-transcript-api",
+      "reviewed_revision": "72d79711ec4db95262660029b4d63298b0820502",
+      "license": "MIT",
+      "last_push_at_review": "2026-05-19",
+      "tier": "unofficial_transcript_endpoint",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "Transcript retrieval without an API key",
+      "usable_scope": [],
+      "limits": [
+        "The code is maintained, but it does not use the official YouTube Data API route.",
+        "YouTube's developer policies prohibit directly or indirectly obtaining scraped YouTube data."
+      ],
+      "policy_url": "https://developers.google.com/youtube/terms/developer-policies"
+    },
+    {
+      "id": "jd-comment-spider",
+      "platform": "jd",
+      "upstream_repo": "2274900/JD_comment_spider",
+      "upstream_url": "https://github.com/2274900/JD_comment_spider",
+      "reviewed_revision": "b5627d0241536101d84f16a144895f210f7dcd73",
+      "license": "MIT",
+      "last_push_at_review": "2020-03-09",
+      "tier": "unofficial_scraper",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "Direct requests to JD search and comment endpoints",
+      "usable_scope": [],
+      "limits": [
+        "The repository is stale and its endpoint assumptions are not a reliable current connector.",
+        "JD's current user agreement restricts unauthorized third-party tools and programs that obtain platform or user data."
+      ],
+      "policy_url": "https://help.jd.com/user/issue/945-4583.html"
+    },
+    {
+      "id": "taobao-review-playwright",
+      "platform": "taobao",
+      "upstream_repo": "l010306/taobao-review-playwright",
+      "upstream_url": "https://github.com/l010306/taobao-review-playwright",
+      "reviewed_revision": "ed5d17bcc42877d7e41a35ddd25df3b3e9a3e832",
+      "license": "MIT",
+      "last_push_at_review": "2026-02-07",
+      "tier": "authenticated_browser_automation",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "Playwright automation with QR-code login and saved session cookies",
+      "usable_scope": [],
+      "limits": [
+        "The repository stores login state and simulates user interaction.",
+        "Current Taobao/Tmall rules prohibit unauthorized crawlers, automation, simulated user operations, and unapproved platform-data acquisition."
+      ],
+      "policy_url": "https://terms.alicdn.com/legal-agreement/terms/suit_bu1_tmall/suit_bu1_tmall201801121425_43176.html"
+    },
+    {
+      "id": "kickstarter-ksinsights",
+      "platform": "kickstarter",
+      "upstream_repo": "ImWhiteRabbit/KSInsights",
+      "upstream_url": "https://github.com/ImWhiteRabbit/KSInsights",
+      "reviewed_revision": "2bf2cb25750127a1420a46062f4235d6009326a8",
+      "license": "MIT",
+      "last_push_at_review": "2025-08-08",
+      "tier": "scraped_historical_dataset",
+      "decision": "blocked",
+      "allowed_access_bases": [],
+      "acquisition_mechanism": "Repository-published snapshots produced by a Kickstarter scraper",
+      "usable_scope": [],
+      "limits": [
+        "The latest repository snapshot found during review is from August 2025, so it is not a current weekly feed.",
+        "Kickstarter's current terms prohibit software or devices from crawling or spidering the site.",
+        "The repository's MIT license does not resolve platform-data provenance or reuse rights."
+      ],
+      "policy_url": "https://legal.kickstarter.com/policies/en/?name=terms-of-use"
+    }
+  ]
+}

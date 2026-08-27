@@ -13,4 +13,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 -m unittest discover -s tests -v
-      - run: python3 skills/user-demand-research/scripts/validate_study.py examples/sample-study
+      - run: python3 skills/user-demand-research/scripts/sure.py check examples/sample-study --stage full

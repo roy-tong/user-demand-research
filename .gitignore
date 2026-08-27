@@ -2,3 +2,5 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+**/05-audit/latest.json
+**/05-audit/latest.md

@@ -1,0 +1,37 @@
+{
+  "study_id": "synthetic-mobile-pet-check",
+  "title": "Synthetic mobile pet-check study",
+  "method_version": "SURE 1.5",
+  "decision": {
+    "question": "Whether to run a two-week mobile home-check pilot for remote pet owners",
+    "owner": "Illustrative product team",
+    "deadline": "Synthetic fixture; no real deadline",
+    "options": ["Run a bounded pilot", "Keep fixed-camera concept", "Stop the concept"],
+    "minimum_evidence": ["Problem and substitute evidence", "Prototype acceptance", "Paid or retained behavior", "Privacy counter-evidence"]
+  },
+  "scope": {
+    "target_users": ["People who leave a pet alone at home for four or more hours"],
+    "markets": ["Illustrative urban consumer sample"],
+    "languages": ["English synthetic records"],
+    "source_time_window": {"start": "synthetic", "end": "synthetic"},
+    "unit_of_observation": "synthetic_evidence_record",
+    "allowed_sources": ["Synthetic interviews", "Synthetic prototype tests", "Synthetic behavior records"],
+    "prohibited_inferences": ["Market size", "Population prevalence", "Price elasticity", "Truth of the synthetic demand"]
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "statement": "Remote pet owners with fixed-camera blind spots will accept a supervised mobile check",
+      "falsified_if": "Privacy rejection persists after physical shutter, room boundary, and explicit-session controls are shown"
+    }
+  ],
+  "quality_gates": {
+    "min_evidence_records": 7,
+    "required_corpus_roles": ["direct_solution", "open_scene", "substitute_rejector", "post_purchase_support", "control"],
+    "max_source_family_share": 0.5,
+    "max_normalized_duplicate_rate": 0.0,
+    "require_counter_evidence_for_validated": true
+  },
+  "stopping_rules": ["Stop after one full synthetic audit", "Stop if the privacy falsifier is met"],
+  "restart_rules": ["Restart only to test a changed privacy-control design"]
+}

@@ -1,12 +1,45 @@
 # Canonical data contract
 
-Use JSONL for full records and CSV/Parquet only as analysis projections. Preserve full text in the master JSONL.
+Use JSONL for full records and CSV/Parquet only as analysis projections. Preserve full source text in the raw or strict-master layer. The compact `02-data/evidence.jsonl` file used by the CLI is an evidence index: it may contain the full text, but it must always retain a stable reference back to the source record.
 
-## Provenance and identity
+## Required by the CLI
+
+Every line in `02-data/evidence.jsonl` must contain these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `record_id` | Stable ID used by demand judgments. |
+| `user_role` | Role or user state supported by the record. |
+| `scene_trigger` | Situation and trigger in which the task occurs. |
+| `task_outcome` | What the person is trying to complete or achieve. |
+| `current_substitute` | Current product, workflow, person, workaround, or non-consumption. |
+| `friction_cost` | Time, money, effort, discomfort, integration burden, or risk. |
+| `consequence` | What happens when the task or substitute fails. |
+| `evidence_level` | `E0`, `E1`, `E2`, `E3`, `E4+`, `E4-`, or `E5`. |
+| `evidence_basis` | Short explanation of what was directly observed. |
+| `corpus_role` | `direct_solution`, `open_scene`, `substitute_rejector`, `post_purchase_support`, or `control`. |
+| `source_family` | Forum, interview, support, ecommerce, telemetry, etc. |
+| `source_ref` | URL or privacy-safe local/source record reference. |
+| `normalized_text_hash` | Stable exact/near-duplicate key. |
+
+Missingness is allowed in the full research schema. For the compact evidence index, use an explicit value such as `unknown` only when the source genuinely does not provide the field; do not fabricate a substitute or consequence to satisfy the schema. Records with critical unknowns should stay below the claim level that needs those fields.
+
+Example:
+
+```json
+{"record_id":"support-0042","user_role":"现场维修工程师","scene_trigger":"双手正在拆装设备，需要确认下一步操作","task_outcome":"在不停止操作的情况下取得准确指导","current_substitute":"放下工具后查看手机","friction_cost":"中断操作","consequence":"维修时间延长","evidence_level":"E2","evidence_basis":"原文描述了当前做法及其中断","corpus_role":"open_scene","source_family":"professional_forum","source_ref":"https://example.invalid/thread/42#record","normalized_text_hash":"sha256:..."}
+```
+
+The example supports a problem/substitute claim. It does not support solution acceptance, purchase intent, or market prevalence.
+
+## Extended provenance and identity fields
 
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `record_id` | string | Stable source-prefixed identifier. |
+| `collection_run_id` | string/null | Links a platform record to one immutable connector manifest. |
+| `connector_id` | string/null | Registry ID of the open-source connector used. |
+| `connector_revision` | string/null | Pinned upstream commit used by the run. |
 | `source_platform` | string | Named platform/site. |
 | `source_family` | string | Forum, social, ecommerce, support, Q&A, video comments, etc. |
 | `source_channel` | string/null | Community, product, repository, board, channel, or listing. |
@@ -19,6 +52,24 @@ Use JSONL for full records and CSV/Parquet only as analysis projections. Preserv
 | `date_precision` | string | Exact, day, month, year, approximate, unknown. |
 | `collected_at` | ISO string | Collection time. |
 | `author_hash` | string/null | Salted hash if needed for dedup; avoid raw identifiers by default. |
+
+## Platform adapter provenance
+
+All subreddits use `source_family=reddit`; all X routes use `source_family=x`; all YouTube channels and videos use `source_family=youtube`. Amazon, JD, Taobao/Tmall, and Kickstarter use their own named source families. Platform diversity is reported within a source family and does not count as independent cross-source confirmation.
+
+When one of these platforms is present, read the shared adapter, open-source connector registry, connector contract, and platform reference. Every row first requires `collection_run_id`, `connector_id`, and `connector_revision`. The CLI additionally requires:
+
+| Platform | Required provenance beyond the generic evidence index |
+| --- | --- |
+| Reddit | `source_platform`, `source_channel`, `source_url`, `thread_id`, `reddit_item_id`, `source_content_type`, `source_query`, `source_sort`, `source_time_filter`, `created_at`, `collected_at`, `content_status` |
+| X | `source_platform`, `source_url`, `x_post_id`, `conversation_id`, `x_post_type`, `source_query`, `source_search_mode`, `created_at`, `collected_at`, `last_verified_at`, `content_status` |
+| YouTube | `source_platform`, `source_channel`, `source_url`, `youtube_video_id`, `youtube_item_id`, `youtube_content_type`, `source_query`, `source_order`, `created_at`, `collected_at`, `last_verified_at`, `refresh_due_at`, `content_status` |
+| Amazon/JD/Taobao | `source_platform`, `source_url`, product/variant/store/brand/record IDs, `commerce_content_type`, `commerce_transaction_status`, `source_completeness`, `source_query`, `created_at`, `collected_at`, `content_status` |
+| Kickstarter | `source_platform`, `source_url`, campaign/creator IDs, `kickstarter_content_type`, `campaign_status`, `commercial_status`, `privacy_status`, `source_query`, `created_at`, `collected_at`, `content_status` |
+
+Reddit comments should retain `parent_id`. X replies should retain `parent_id`; quote posts should retain `quoted_post_id`. YouTube comments require `comment_thread_id` and replies require `parent_id`. Amazon historical records retain ASIN and parent ASIN separately. Deleted, removed, unavailable, expired, or blocked records remain as route/audit tombstones if permitted but must be removed from claim-eligible evidence.
+
+The run manifest lives at `01-sources/manifests/<collection_run_id>.json` and records the connector repository/revision/license, access basis, policy and data-rights review, route/query, requested/reached/written counts, quota/rate state, warnings, and stop reason. Credentials never enter the manifest.
 
 ## Content and quality
 

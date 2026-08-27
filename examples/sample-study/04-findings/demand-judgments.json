@@ -1,0 +1,22 @@
+[
+  {
+    "id": "D01",
+    "title": "Supervised mobile verification for fixed-camera blind spots",
+    "user_role": "Remote pet owners whose current cameras leave important blind spots",
+    "scene": "An alert or prolonged absence creates a need to check another room",
+    "task": "Inspect the relevant space before deciding whether intervention is needed",
+    "current_substitute": "Fixed cameras or asking a neighbor",
+    "friction": "Blind spots, additional installation, or a slow and socially costly neighbor request",
+    "consequence": "Delayed or unnecessary return home",
+    "solution": "A session-bounded mobile home check",
+    "acceptance_conditions": "Physical shutter, room boundaries, explicit session start, and visible recording state",
+    "problem_evidence_ids": ["R01", "R02"],
+    "solution_evidence_ids": ["R03"],
+    "commercial_evidence_ids": ["R04", "R06"],
+    "counter_evidence_ids": ["R05", "R07"],
+    "status": "validated",
+    "confidence": "low",
+    "gaps": ["Synthetic fixture only", "Very short retained-use window", "Privacy controls are not tested in real homes"],
+    "next_test": "Run a real two-week bounded pilot with predeclared privacy-rejection and retained-use thresholds"
+  }
+]

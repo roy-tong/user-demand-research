@@ -1,0 +1,1915 @@
+#!/usr/bin/env python3
+"""Initialize and audit a SURE user-demand research study.
+
+This CLI intentionally uses only the Python standard library. It validates
+research structure and claim eligibility; it does not collect data, call a
+model, or prove population-level demand.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import shutil
+import sys
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+
+LEVELS = {"E0", "E1", "E2", "E3", "E4+", "E4-", "E5"}
+CORPUS_ROLES = {
+    "direct_solution",
+    "open_scene",
+    "substitute_rejector",
+    "post_purchase_support",
+    "control",
+}
+STAGES = ("design", "evidence", "decision", "full")
+REGISTRY_PATH = Path(__file__).resolve().parents[1] / "assets" / "open-source-connectors.json"
+
+CONNECTOR_CONFIG_REQUIRED = {
+    "connector_id",
+    "connector_revision",
+    "connector_license",
+    "policy_status",
+    "data_rights_reviewed_at",
+    "data_rights_basis",
+}
+CONNECTOR_PROVENANCE_REQUIRED = {
+    "collection_run_id",
+    "connector_id",
+    "connector_revision",
+}
+
+STUDY_REQUIRED = {
+    "study_id",
+    "title",
+    "decision",
+    "scope",
+    "hypotheses",
+    "quality_gates",
+    "stopping_rules",
+    "restart_rules",
+}
+DECISION_REQUIRED = {"question", "owner", "deadline", "options", "minimum_evidence"}
+SCOPE_REQUIRED = {
+    "target_users",
+    "markets",
+    "languages",
+    "source_time_window",
+    "unit_of_observation",
+    "allowed_sources",
+    "prohibited_inferences",
+}
+GATE_REQUIRED = {
+    "min_evidence_records",
+    "required_corpus_roles",
+    "max_source_family_share",
+    "max_normalized_duplicate_rate",
+    "require_counter_evidence_for_validated",
+}
+EVIDENCE_REQUIRED = {
+    "record_id",
+    "user_role",
+    "scene_trigger",
+    "task_outcome",
+    "current_substitute",
+    "friction_cost",
+    "consequence",
+    "evidence_level",
+    "evidence_basis",
+    "corpus_role",
+    "source_family",
+    "source_ref",
+    "normalized_text_hash",
+}
+JUDGMENT_REQUIRED = {
+    "id",
+    "title",
+    "user_role",
+    "scene",
+    "task",
+    "current_substitute",
+    "friction",
+    "consequence",
+    "solution",
+    "acceptance_conditions",
+    "problem_evidence_ids",
+    "solution_evidence_ids",
+    "commercial_evidence_ids",
+    "counter_evidence_ids",
+    "status",
+    "confidence",
+    "gaps",
+    "next_test",
+}
+REDDIT_REQUIRED = {
+    "source_platform",
+    "source_channel",
+    "source_url",
+    "thread_id",
+    "reddit_item_id",
+    "source_content_type",
+    "source_query",
+    "source_sort",
+    "source_time_filter",
+    "created_at",
+    "collected_at",
+    "content_status",
+} | CONNECTOR_PROVENANCE_REQUIRED
+REDDIT_CONFIG_REQUIRED = {
+    "enabled",
+    "researcher_role",
+    "collection_mode",
+    "access_basis",
+    "terms_reviewed_at",
+    "retention_rule",
+    "min_unique_subreddits",
+    "min_unique_threads",
+    "max_subreddit_share",
+    "max_thread_share",
+    "require_original_source",
+    "treat_ai_summaries_as_discovery_only",
+} | CONNECTOR_CONFIG_REQUIRED
+REDDIT_COLLECTION_MODES = {"historical_search", "live_monitoring", "mixed"}
+REDDIT_ACCESS_BASES = {"official_api"}
+X_REQUIRED = {
+    "source_platform",
+    "source_url",
+    "x_post_id",
+    "conversation_id",
+    "x_post_type",
+    "source_query",
+    "source_search_mode",
+    "created_at",
+    "collected_at",
+    "last_verified_at",
+    "content_status",
+} | CONNECTOR_PROVENANCE_REQUIRED
+X_CONFIG_REQUIRED = {
+    "enabled",
+    "researcher_role",
+    "collection_mode",
+    "access_basis",
+    "terms_reviewed_at",
+    "retention_rule",
+    "min_unique_conversations",
+    "min_unique_days",
+    "max_conversation_share",
+    "max_repost_share",
+    "max_single_day_share",
+    "require_original_source",
+    "treat_ai_summaries_as_discovery_only",
+} | CONNECTOR_CONFIG_REQUIRED
+X_ACCESS_BASES = {"official_api"}
+X_POST_TYPES = {"original", "reply", "quote", "repost"}
+YOUTUBE_REQUIRED = {
+    "source_platform",
+    "source_channel",
+    "source_url",
+    "youtube_video_id",
+    "youtube_item_id",
+    "youtube_content_type",
+    "source_query",
+    "source_order",
+    "created_at",
+    "collected_at",
+    "last_verified_at",
+    "refresh_due_at",
+    "content_status",
+} | CONNECTOR_PROVENANCE_REQUIRED
+YOUTUBE_CONFIG_REQUIRED = {
+    "enabled",
+    "researcher_role",
+    "collection_mode",
+    "access_basis",
+    "terms_reviewed_at",
+    "retention_rule",
+    "min_unique_channels",
+    "min_unique_videos",
+    "max_channel_share",
+    "max_video_share",
+    "require_original_source",
+    "treat_ai_summaries_as_discovery_only",
+} | CONNECTOR_CONFIG_REQUIRED
+YOUTUBE_ACCESS_BASES = {"official_api"}
+YOUTUBE_CONTENT_TYPES = {"video", "transcript_segment", "top_level_comment", "reply"}
+
+MARKETPLACE_ADAPTERS = ("amazon", "jd", "taobao")
+MARKETPLACE_REQUIRED = {
+    "source_platform",
+    "source_url",
+    "commerce_product_id",
+    "commerce_variant_id",
+    "commerce_store_id",
+    "commerce_brand",
+    "commerce_record_id",
+    "commerce_content_type",
+    "commerce_transaction_status",
+    "source_completeness",
+    "source_query",
+    "created_at",
+    "collected_at",
+    "content_status",
+} | CONNECTOR_PROVENANCE_REQUIRED
+MARKETPLACE_CONFIG_REQUIRED = {
+    "enabled",
+    "researcher_role",
+    "collection_mode",
+    "access_basis",
+    "terms_reviewed_at",
+    "retention_rule",
+    "min_unique_products",
+    "min_unique_stores",
+    "min_unique_brands",
+    "max_product_share",
+    "max_store_share",
+    "max_brand_share",
+    "max_single_month_share",
+    "require_variant_id",
+    "require_original_source",
+    "treat_ai_summaries_as_discovery_only",
+} | CONNECTOR_CONFIG_REQUIRED
+MARKETPLACE_ACCESS_BASES = {
+    "amazon": {"historical_dataset"},
+    "jd": set(),
+    "taobao": set(),
+}
+COMMERCE_CONTENT_TYPES = {
+    "review",
+    "follow_up_review",
+    "review_snippet",
+    "question",
+    "answer",
+    "return_record",
+    "review_topic",
+    "return_topic",
+    "rating_only",
+    "seller_response",
+}
+COMMERCE_TRANSACTION_STATUSES = {
+    "verified_purchase",
+    "transaction_linked",
+    "unverified",
+    "vine_free_product",
+    "incentivized_disclosed",
+    "unknown",
+    "not_applicable",
+}
+COMMERCE_COMPLETENESS = {"full_text", "snippet", "aggregate", "rating_only"}
+
+KICKSTARTER_REQUIRED = {
+    "source_platform",
+    "source_url",
+    "campaign_id",
+    "creator_id",
+    "kickstarter_content_type",
+    "campaign_status",
+    "commercial_status",
+    "privacy_status",
+    "source_query",
+    "created_at",
+    "collected_at",
+    "content_status",
+} | CONNECTOR_PROVENANCE_REQUIRED
+KICKSTARTER_CONFIG_REQUIRED = {
+    "enabled",
+    "researcher_role",
+    "collection_mode",
+    "access_basis",
+    "terms_reviewed_at",
+    "retention_rule",
+    "backer_data_policy",
+    "allow_personal_data",
+    "min_unique_campaigns",
+    "min_unique_creators",
+    "max_campaign_share",
+    "max_creator_share",
+    "max_single_day_share",
+    "require_original_source",
+    "treat_ai_summaries_as_discovery_only",
+} | CONNECTOR_CONFIG_REQUIRED
+KICKSTARTER_ACCESS_BASES: set[str] = set()
+KICKSTARTER_CONTENT_TYPES = {
+    "campaign_page",
+    "funding_snapshot",
+    "comment",
+    "creator_update",
+    "faq",
+    "pledge_record",
+    "refund_record",
+    "fulfillment_record",
+    "tracker_snapshot",
+}
+KICKSTARTER_CAMPAIGN_STATUSES = {
+    "prelaunch",
+    "live",
+    "successful",
+    "failed",
+    "canceled",
+    "suspended",
+    "unknown",
+}
+KICKSTARTER_COMMERCIAL_STATUSES = {
+    "none",
+    "public_aggregate",
+    "pledged",
+    "pledge_adjusted",
+    "charged",
+    "dropped",
+    "refunded",
+    "fulfilled",
+    "not_applicable",
+}
+KICKSTARTER_PRIVACY_STATUSES = {"public", "deidentified", "aggregate"}
+
+
+@dataclass
+class Finding:
+    check_id: str
+    status: str
+    detail: str
+    stage: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "id": self.check_id,
+            "status": self.status,
+            "detail": self.detail,
+            "stage": self.stage,
+        }
+
+
+@dataclass
+class Audit:
+    study_dir: Path
+    requested_stage: str
+    findings: list[Finding] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+    def add(self, check_id: str, status: str, detail: str, stage: str) -> None:
+        self.findings.append(Finding(check_id, status, detail, stage))
+
+    @property
+    def status(self) -> str:
+        return "fail" if any(item.status == "fail" for item in self.findings) else "pass"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "requested_stage": self.requested_stage,
+            "study_dir": str(self.study_dir),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": self.metrics,
+            "checks": [item.as_dict() for item in self.findings],
+            "meaning": (
+                "A pass confirms configured structural and evidence-chain gates only. "
+                "It does not prove prevalence, market size, or causal demand."
+            ),
+        }
+
+
+def _is_missing(value: Any) -> bool:
+    if value is None or value == "":
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"tbd", "todo", "[fill]", "待填写"}:
+        return True
+    return False
+
+
+def _missing_fields(value: Any, required: Iterable[str]) -> list[str]:
+    if not isinstance(value, dict):
+        return ["<object required>"]
+    return sorted(field for field in required if field not in value or _is_missing(value[field]))
+
+
+def _load_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_connector_registry() -> dict[str, Any]:
+    value = _load_json(REGISTRY_PATH)
+    if not isinstance(value, dict) or not isinstance(value.get("connectors"), list):
+        raise ValueError(f"invalid connector registry: {REGISTRY_PATH}")
+    return value
+
+
+def _connector_index() -> dict[str, dict[str, Any]]:
+    registry = _load_connector_registry()
+    result: dict[str, dict[str, Any]] = {}
+    for item in registry["connectors"]:
+        if not isinstance(item, dict) or _is_missing(item.get("id")):
+            raise ValueError(f"connector registry contains an invalid entry: {REGISTRY_PATH}")
+        connector_id = str(item["id"])
+        if connector_id in result:
+            raise ValueError(f"duplicate connector id in registry: {connector_id}")
+        result[connector_id] = item
+    return result
+
+
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"line {line_number} must be a JSON object")
+        value["_line_number"] = line_number
+        records.append(value)
+    return records
+
+
+def _study_paths(root: Path) -> dict[str, Path]:
+    return {
+        "study": root / "study.json",
+        "sources": root / "01-sources" / "source-plan.csv",
+        "evidence": root / "02-data" / "evidence.jsonl",
+        "codebook": root / "03-codebook" / "codebook.csv",
+        "judgments": root / "04-findings" / "demand-judgments.json",
+        "audit_dir": root / "05-audit",
+    }
+
+
+def _reddit_config(study: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(study, dict):
+        return None
+    adapters = study.get("source_adapters")
+    if not isinstance(adapters, dict):
+        return None
+    reddit = adapters.get("reddit")
+    return reddit if isinstance(reddit, dict) else None
+
+
+def _source_adapter_config(
+    study: dict[str, Any] | None, adapter_name: str
+) -> dict[str, Any] | None:
+    if not isinstance(study, dict):
+        return None
+    adapters = study.get("source_adapters")
+    if not isinstance(adapters, dict):
+        return None
+    config = adapters.get(adapter_name)
+    return config if isinstance(config, dict) else None
+
+
+def _validate_reddit_config(study: dict[str, Any] | None) -> list[str]:
+    config = _reddit_config(study)
+    if config is None:
+        return ["missing study.json source_adapters.reddit"]
+    errors: list[str] = []
+    missing = _missing_fields(config, REDDIT_CONFIG_REQUIRED)
+    if missing:
+        errors.append("reddit adapter missing: " + ", ".join(missing))
+        return errors
+    if config.get("enabled") is not True:
+        errors.append("source_adapters.reddit.enabled must be true")
+    if config.get("researcher_role") != "external_third_party":
+        errors.append("reddit researcher_role must be external_third_party")
+    if config.get("collection_mode") not in REDDIT_COLLECTION_MODES:
+        errors.append(
+            "reddit collection_mode must be one of: "
+            + ", ".join(sorted(REDDIT_COLLECTION_MODES))
+        )
+    if config.get("access_basis") not in REDDIT_ACCESS_BASES:
+        errors.append(
+            "reddit access_basis must be one of: " + ", ".join(sorted(REDDIT_ACCESS_BASES))
+        )
+    if config.get("require_original_source") is not True:
+        errors.append("reddit require_original_source must be true")
+    if config.get("treat_ai_summaries_as_discovery_only") is not True:
+        errors.append("reddit AI summaries must be discovery-only")
+    try:
+        datetime.fromisoformat(str(config.get("terms_reviewed_at", ""))[:10])
+    except ValueError:
+        errors.append("reddit terms_reviewed_at must be an ISO date")
+    try:
+        if int(config.get("min_unique_subreddits", 0)) < 1:
+            errors.append("reddit min_unique_subreddits must be at least 1")
+        if int(config.get("min_unique_threads", 0)) < 1:
+            errors.append("reddit min_unique_threads must be at least 1")
+        max_subreddit_share = float(config.get("max_subreddit_share", 0))
+        max_thread_share = float(config.get("max_thread_share", 0))
+        if not 0 < max_subreddit_share <= 1:
+            errors.append("reddit max_subreddit_share must be in (0, 1]")
+        if not 0 < max_thread_share <= 1:
+            errors.append("reddit max_thread_share must be in (0, 1]")
+    except (TypeError, ValueError):
+        errors.append("reddit numeric thresholds must be valid numbers")
+    return errors
+
+
+def _is_reddit_record(record: dict[str, Any]) -> bool:
+    source_family = str(record.get("source_family", "")).strip().lower()
+    source_platform = str(record.get("source_platform", "")).strip().lower()
+    return source_family == "reddit" or source_platform in {
+        "reddit",
+        "reddit.com",
+        "www.reddit.com",
+    }
+
+
+def _validate_connector_selection(
+    adapter_name: str, config: dict[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        registry = _connector_index()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"cannot load open-source connector registry: {exc}"]
+
+    connector_id = str(config.get("connector_id", "")).strip()
+    selected = registry.get(connector_id)
+    if selected is None:
+        return [
+            f"{adapter_name} connector_id {connector_id or '<empty>'} is not in "
+            "assets/open-source-connectors.json"
+        ]
+    if selected.get("platform") != adapter_name:
+        errors.append(
+            f"{adapter_name} connector {connector_id} belongs to platform "
+            f"{selected.get('platform')}"
+        )
+
+    decision = str(selected.get("decision", ""))
+    if decision == "blocked":
+        errors.append(f"{adapter_name} connector {connector_id} is blocked by the registry")
+    elif decision not in {"supported", "historical_only"}:
+        errors.append(f"{adapter_name} connector {connector_id} has unknown decision {decision}")
+
+    expected_revision = str(selected.get("reviewed_revision", ""))
+    if str(config.get("connector_revision", "")) != expected_revision:
+        errors.append(
+            f"{adapter_name} connector_revision is not the reviewed revision "
+            f"{expected_revision} for {connector_id}"
+        )
+    expected_license = str(selected.get("license", ""))
+    if str(config.get("connector_license", "")) != expected_license:
+        errors.append(
+            f"{adapter_name} connector_license must be {expected_license} for {connector_id}"
+        )
+
+    access_basis = str(config.get("access_basis", ""))
+    allowed_access_bases = {
+        str(value) for value in selected.get("allowed_access_bases", [])
+    }
+    if access_basis not in allowed_access_bases:
+        expected = ", ".join(sorted(allowed_access_bases)) or "none"
+        errors.append(
+            f"{adapter_name} access_basis {access_basis or '<empty>'} is not permitted "
+            f"for {connector_id}; expected {expected}"
+        )
+
+    policy_status = str(config.get("policy_status", ""))
+    expected_policy_status = (
+        "historical_data_only" if decision == "historical_only" else "approved_for_study"
+    )
+    if policy_status != expected_policy_status:
+        errors.append(
+            f"{adapter_name} policy_status must be {expected_policy_status} "
+            f"for connector decision {decision}"
+        )
+    if decision == "historical_only" and config.get("collection_mode") != "historical_search":
+        errors.append(
+            f"{adapter_name} historical-only connector requires collection_mode=historical_search"
+        )
+
+    try:
+        datetime.fromisoformat(str(config.get("data_rights_reviewed_at", ""))[:10])
+    except ValueError:
+        errors.append(f"{adapter_name} data_rights_reviewed_at must be an ISO date")
+    return errors
+
+
+def _validate_source_adapter_config(
+    study: dict[str, Any] | None,
+    adapter_name: str,
+    required: set[str],
+    access_bases: set[str],
+) -> list[str]:
+    config = _source_adapter_config(study, adapter_name)
+    if config is None:
+        return [f"missing study.json source_adapters.{adapter_name}"]
+    errors: list[str] = []
+    missing = _missing_fields(config, required)
+    if missing:
+        errors.append(f"{adapter_name} adapter missing: " + ", ".join(missing))
+        return errors
+    if config.get("enabled") is not True:
+        errors.append(f"source_adapters.{adapter_name}.enabled must be true")
+    if config.get("researcher_role") != "external_third_party":
+        errors.append(f"{adapter_name} researcher_role must be external_third_party")
+    if config.get("collection_mode") not in REDDIT_COLLECTION_MODES:
+        errors.append(
+            f"{adapter_name} collection_mode must be one of: "
+            + ", ".join(sorted(REDDIT_COLLECTION_MODES))
+        )
+    if config.get("access_basis") not in access_bases:
+        errors.append(
+            f"{adapter_name} access_basis must be one of: " + ", ".join(sorted(access_bases))
+        )
+    if config.get("require_original_source") is not True:
+        errors.append(f"{adapter_name} require_original_source must be true")
+    if config.get("treat_ai_summaries_as_discovery_only") is not True:
+        errors.append(f"{adapter_name} AI summaries must be discovery-only")
+    try:
+        datetime.fromisoformat(str(config.get("terms_reviewed_at", ""))[:10])
+    except ValueError:
+        errors.append(f"{adapter_name} terms_reviewed_at must be an ISO date")
+    errors.extend(_validate_connector_selection(adapter_name, config))
+    return errors
+
+
+def _record_connector_errors(
+    record: dict[str, Any], study: dict[str, Any] | None, adapter_name: str
+) -> list[str]:
+    config = _source_adapter_config(study, adapter_name)
+    if config is None:
+        return []
+    record_id = str(record.get("record_id", "<unknown>"))
+    errors: list[str] = []
+    if record.get("connector_id") != config.get("connector_id"):
+        errors.append(
+            f"{record_id} connector_id does not match source_adapters.{adapter_name}"
+        )
+    if record.get("connector_revision") != config.get("connector_revision"):
+        errors.append(
+            f"{record_id} connector_revision does not match source_adapters.{adapter_name}"
+        )
+    return errors
+
+
+def _validate_x_config(study: dict[str, Any] | None) -> list[str]:
+    errors = _validate_source_adapter_config(study, "x", X_CONFIG_REQUIRED, X_ACCESS_BASES)
+    config = _source_adapter_config(study, "x")
+    if errors or config is None:
+        return errors
+    try:
+        if int(config.get("min_unique_conversations", 0)) < 1:
+            errors.append("x min_unique_conversations must be at least 1")
+        if int(config.get("min_unique_days", 0)) < 1:
+            errors.append("x min_unique_days must be at least 1")
+        for field_name in ("max_conversation_share", "max_repost_share", "max_single_day_share"):
+            value = float(config.get(field_name, 0))
+            if not 0 < value <= 1:
+                errors.append(f"x {field_name} must be in (0, 1]")
+    except (TypeError, ValueError):
+        errors.append("x numeric thresholds must be valid numbers")
+    return errors
+
+
+def _validate_youtube_config(study: dict[str, Any] | None) -> list[str]:
+    errors = _validate_source_adapter_config(
+        study, "youtube", YOUTUBE_CONFIG_REQUIRED, YOUTUBE_ACCESS_BASES
+    )
+    config = _source_adapter_config(study, "youtube")
+    if errors or config is None:
+        return errors
+    try:
+        if int(config.get("min_unique_channels", 0)) < 1:
+            errors.append("youtube min_unique_channels must be at least 1")
+        if int(config.get("min_unique_videos", 0)) < 1:
+            errors.append("youtube min_unique_videos must be at least 1")
+        for field_name in ("max_channel_share", "max_video_share"):
+            value = float(config.get(field_name, 0))
+            if not 0 < value <= 1:
+                errors.append(f"youtube {field_name} must be in (0, 1]")
+    except (TypeError, ValueError):
+        errors.append("youtube numeric thresholds must be valid numbers")
+    return errors
+
+
+def _validate_marketplace_config(
+    study: dict[str, Any] | None, adapter_name: str
+) -> list[str]:
+    errors = _validate_source_adapter_config(
+        study,
+        adapter_name,
+        MARKETPLACE_CONFIG_REQUIRED,
+        MARKETPLACE_ACCESS_BASES[adapter_name],
+    )
+    config = _source_adapter_config(study, adapter_name)
+    if errors or config is None:
+        return errors
+    if config.get("require_variant_id") is not True:
+        errors.append(f"{adapter_name} require_variant_id must be true")
+    try:
+        for field_name in ("min_unique_products", "min_unique_stores", "min_unique_brands"):
+            if int(config.get(field_name, 0)) < 1:
+                errors.append(f"{adapter_name} {field_name} must be at least 1")
+        for field_name in (
+            "max_product_share",
+            "max_store_share",
+            "max_brand_share",
+            "max_single_month_share",
+        ):
+            value = float(config.get(field_name, 0))
+            if not 0 < value <= 1:
+                errors.append(f"{adapter_name} {field_name} must be in (0, 1]")
+    except (TypeError, ValueError):
+        errors.append(f"{adapter_name} numeric thresholds must be valid numbers")
+    return errors
+
+
+def _validate_kickstarter_config(study: dict[str, Any] | None) -> list[str]:
+    errors = _validate_source_adapter_config(
+        study,
+        "kickstarter",
+        KICKSTARTER_CONFIG_REQUIRED,
+        KICKSTARTER_ACCESS_BASES,
+    )
+    config = _source_adapter_config(study, "kickstarter")
+    if errors or config is None:
+        return errors
+    if config.get("allow_personal_data") is not False:
+        errors.append("kickstarter allow_personal_data must be false for the evidence workspace")
+    try:
+        for field_name in ("min_unique_campaigns", "min_unique_creators"):
+            if int(config.get(field_name, 0)) < 1:
+                errors.append(f"kickstarter {field_name} must be at least 1")
+        for field_name in (
+            "max_campaign_share",
+            "max_creator_share",
+            "max_single_day_share",
+        ):
+            value = float(config.get(field_name, 0))
+            if not 0 < value <= 1:
+                errors.append(f"kickstarter {field_name} must be in (0, 1]")
+    except (TypeError, ValueError):
+        errors.append("kickstarter numeric thresholds must be valid numbers")
+    return errors
+
+
+def _is_x_record(record: dict[str, Any]) -> bool:
+    source_family = str(record.get("source_family", "")).strip().lower()
+    source_platform = str(record.get("source_platform", "")).strip().lower()
+    return source_family in {"x", "twitter"} or source_platform in {
+        "x",
+        "x.com",
+        "www.x.com",
+        "twitter",
+        "twitter.com",
+        "www.twitter.com",
+    }
+
+
+def _is_youtube_record(record: dict[str, Any]) -> bool:
+    source_family = str(record.get("source_family", "")).strip().lower()
+    source_platform = str(record.get("source_platform", "")).strip().lower()
+    return source_family == "youtube" or source_platform in {
+        "youtube",
+        "youtube.com",
+        "www.youtube.com",
+        "youtu.be",
+    }
+
+
+def _is_marketplace_record(record: dict[str, Any], adapter_name: str) -> bool:
+    source_family = str(record.get("source_family", "")).strip().lower()
+    source_platform = str(record.get("source_platform", "")).strip().lower()
+    aliases = {
+        "amazon": {"amazon", "amazon.com", "www.amazon.com"},
+        "jd": {"jd", "jd.com", "www.jd.com", "jingdong"},
+        "taobao": {"taobao", "taobao.com", "www.taobao.com", "tmall", "tmall.com"},
+    }
+    return source_family == adapter_name or source_platform in aliases[adapter_name]
+
+
+def _is_kickstarter_record(record: dict[str, Any]) -> bool:
+    source_family = str(record.get("source_family", "")).strip().lower()
+    source_platform = str(record.get("source_platform", "")).strip().lower()
+    return source_family == "kickstarter" or source_platform in {
+        "kickstarter",
+        "kickstarter.com",
+        "www.kickstarter.com",
+    }
+
+
+def _source_day(value: Any) -> str:
+    text = str(value).strip()
+    return text[:10] if len(text) >= 10 else text
+
+
+def _source_month(value: Any) -> str:
+    text = str(value).strip()
+    return text[:7] if len(text) >= 7 else text
+
+
+def _date_has_expired(value: Any) -> bool:
+    text = str(value).strip()
+    if len(text) == 10:
+        try:
+            return datetime.fromisoformat(text).date() < datetime.now(timezone.utc).date()
+        except ValueError:
+            return True
+    try:
+        due = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return due < datetime.now(timezone.utc)
+
+
+def _count_label(count: int, singular: str, plural: str | None = None) -> str:
+    word = singular if count == 1 else (plural or singular + "s")
+    return f"{count} {word}"
+
+
+def _check_design(audit: Audit, paths: dict[str, Path]) -> dict[str, Any] | None:
+    if not paths["study"].is_file():
+        audit.add("study_contract", "fail", "missing study.json", "design")
+        return None
+    try:
+        study = _load_json(paths["study"])
+    except (OSError, json.JSONDecodeError) as exc:
+        audit.add("study_contract", "fail", f"cannot parse study.json: {exc}", "design")
+        return None
+
+    errors: list[str] = []
+    missing = _missing_fields(study, STUDY_REQUIRED)
+    if missing:
+        errors.append("study missing: " + ", ".join(missing))
+    if isinstance(study, dict):
+        for key, required in (
+            ("decision", DECISION_REQUIRED),
+            ("scope", SCOPE_REQUIRED),
+            ("quality_gates", GATE_REQUIRED),
+        ):
+            nested_missing = _missing_fields(study.get(key), required)
+            if nested_missing:
+                errors.append(f"{key} missing: " + ", ".join(nested_missing))
+        hypotheses = study.get("hypotheses", [])
+        if isinstance(hypotheses, list):
+            for index, hypothesis in enumerate(hypotheses, start=1):
+                missing_h = _missing_fields(hypothesis, {"id", "statement", "falsified_if"})
+                if missing_h:
+                    errors.append(f"hypothesis {index} missing: " + ", ".join(missing_h))
+        else:
+            errors.append("hypotheses must be an array")
+        decision = study.get("decision", {})
+        if isinstance(decision, dict) and isinstance(decision.get("options"), list):
+            if len(decision["options"]) < 2:
+                errors.append("decision.options must contain at least two choices")
+        scope = study.get("scope", {})
+        if isinstance(scope, dict):
+            window = scope.get("source_time_window")
+            missing_window = _missing_fields(window, {"start", "end"})
+            if missing_window:
+                errors.append("scope.source_time_window missing: " + ", ".join(missing_window))
+        gates = study.get("quality_gates", {})
+        if isinstance(gates, dict):
+            configured_roles = {str(value) for value in gates.get("required_corpus_roles", [])}
+            invalid_configured_roles = sorted(configured_roles - CORPUS_ROLES)
+            if invalid_configured_roles:
+                errors.append("quality_gates has unknown corpus roles: " + ", ".join(invalid_configured_roles))
+            try:
+                if int(gates.get("min_evidence_records", 0)) < 1:
+                    errors.append("quality_gates.min_evidence_records must be at least 1")
+                source_share = float(gates.get("max_source_family_share", 0))
+                duplicate_rate = float(gates.get("max_normalized_duplicate_rate", -1))
+                if not 0 < source_share <= 1:
+                    errors.append("quality_gates.max_source_family_share must be in (0, 1]")
+                if not 0 <= duplicate_rate <= 1:
+                    errors.append("quality_gates.max_normalized_duplicate_rate must be in [0, 1]")
+            except (TypeError, ValueError):
+                errors.append("quality_gates numeric thresholds must be valid numbers")
+
+    audit.add(
+        "study_contract",
+        "fail" if errors else "pass",
+        "; ".join(errors) if errors else "decision, scope, hypotheses and gates are explicit",
+        "design",
+    )
+
+    source_errors: list[str] = []
+    source_rows: list[dict[str, str]] = []
+    if not paths["sources"].is_file():
+        source_errors.append("missing 01-sources/source-plan.csv")
+    else:
+        try:
+            with paths["sources"].open(encoding="utf-8-sig", newline="") as handle:
+                source_rows = list(csv.DictReader(handle))
+        except OSError as exc:
+            source_errors.append(str(exc))
+        required_columns = {
+            "corpus_role",
+            "source_family",
+            "route_or_query",
+            "target_records",
+            "cap_share",
+            "access_status",
+            "known_bias",
+        }
+        if source_rows:
+            missing_columns = sorted(required_columns - set(source_rows[0]))
+            if missing_columns:
+                source_errors.append("missing columns: " + ", ".join(missing_columns))
+            else:
+                for index, row in enumerate(source_rows, start=2):
+                    for column in ("corpus_role", "source_family", "route_or_query", "access_status", "known_bias"):
+                        if not str(row.get(column, "")).strip():
+                            source_errors.append(f"row {index} has empty {column}")
+                    try:
+                        if int(row.get("target_records", "0")) < 1:
+                            source_errors.append(f"row {index} target_records must be at least 1")
+                    except ValueError:
+                        source_errors.append(f"row {index} target_records is not an integer")
+                    try:
+                        cap_share = float(row.get("cap_share", ""))
+                        if not 0 < cap_share <= 1:
+                            source_errors.append(f"row {index} cap_share must be in (0, 1]")
+                    except ValueError:
+                        source_errors.append(f"row {index} cap_share is not a number")
+        else:
+            source_errors.append("source plan has no routes")
+
+    required_roles = set()
+    if isinstance(study, dict):
+        gates = study.get("quality_gates", {})
+        if isinstance(gates, dict) and isinstance(gates.get("required_corpus_roles"), list):
+            required_roles = {str(role) for role in gates["required_corpus_roles"]}
+    planned_roles = {row.get("corpus_role", "") for row in source_rows}
+    unknown_roles = sorted((planned_roles - {""}) - CORPUS_ROLES)
+    missing_roles = sorted(required_roles - planned_roles)
+    if unknown_roles:
+        source_errors.append("unknown corpus roles: " + ", ".join(unknown_roles))
+    if missing_roles:
+        source_errors.append("required roles without a route: " + ", ".join(missing_roles))
+    audit.metrics["planned_routes"] = len(source_rows)
+    audit.add(
+        "source_plan",
+        "fail" if source_errors else "pass",
+        "; ".join(source_errors) if source_errors else f"{len(source_rows)} routes cover configured roles",
+        "design",
+    )
+    reddit_planned = any(
+        str(row.get("source_family", "")).strip().lower() == "reddit" for row in source_rows
+    )
+    if reddit_planned:
+        reddit_errors = _validate_reddit_config(study if isinstance(study, dict) else None)
+        audit.add(
+            "reddit_source_design",
+            "fail" if reddit_errors else "pass",
+            "; ".join(reddit_errors)
+            if reddit_errors
+            else "Reddit access basis, retention rule and concentration gates are explicit",
+            "design",
+        )
+    x_planned = any(
+        str(row.get("source_family", "")).strip().lower() in {"x", "twitter"}
+        for row in source_rows
+    )
+    if x_planned:
+        x_errors = _validate_x_config(study if isinstance(study, dict) else None)
+        audit.add(
+            "x_source_design",
+            "fail" if x_errors else "pass",
+            "; ".join(x_errors)
+            if x_errors
+            else "X access basis, retention rule and event/conversation gates are explicit",
+            "design",
+        )
+    youtube_planned = any(
+        str(row.get("source_family", "")).strip().lower() == "youtube" for row in source_rows
+    )
+    if youtube_planned:
+        youtube_errors = _validate_youtube_config(study if isinstance(study, dict) else None)
+        audit.add(
+            "youtube_source_design",
+            "fail" if youtube_errors else "pass",
+            "; ".join(youtube_errors)
+            if youtube_errors
+            else "YouTube access basis, refresh rule and channel/video gates are explicit",
+            "design",
+        )
+    for adapter_name in MARKETPLACE_ADAPTERS:
+        adapter_planned = any(
+            str(row.get("source_family", "")).strip().lower() == adapter_name
+            for row in source_rows
+        )
+        if not adapter_planned:
+            continue
+        adapter_errors = _validate_marketplace_config(
+            study if isinstance(study, dict) else None, adapter_name
+        )
+        audit.add(
+            f"{adapter_name}_source_design",
+            "fail" if adapter_errors else "pass",
+            "; ".join(adapter_errors)
+            if adapter_errors
+            else (
+                f"{adapter_name} access basis, product hierarchy, transaction status "
+                "and concentration gates are explicit"
+            ),
+            "design",
+        )
+    kickstarter_planned = any(
+        str(row.get("source_family", "")).strip().lower() == "kickstarter"
+        for row in source_rows
+    )
+    if kickstarter_planned:
+        kickstarter_errors = _validate_kickstarter_config(
+            study if isinstance(study, dict) else None
+        )
+        audit.add(
+            "kickstarter_source_design",
+            "fail" if kickstarter_errors else "pass",
+            "; ".join(kickstarter_errors)
+            if kickstarter_errors
+            else (
+                "Kickstarter access basis, backer-data boundary, campaign hierarchy "
+                "and concentration gates are explicit"
+            ),
+            "design",
+        )
+    return study if isinstance(study, dict) else None
+
+
+def _check_x_evidence(
+    audit: Audit, records: list[dict[str, Any]], study: dict[str, Any] | None
+) -> None:
+    x_records = [record for record in records if _is_x_record(record)]
+    if not x_records:
+        return
+    errors = _validate_x_config(study)
+    conversation_counts: Counter[str] = Counter()
+    day_counts: Counter[str] = Counter()
+    repost_count = 0
+    for record in x_records:
+        record_id = str(record.get("record_id", "<unknown>"))
+        missing = _missing_fields(record, X_REQUIRED)
+        if missing:
+            errors.append(f"{record_id} missing X provenance: " + ", ".join(missing))
+            continue
+        errors.extend(_record_connector_errors(record, study, "x"))
+        if str(record.get("source_family", "")).strip().lower() != "x":
+            errors.append(f"{record_id} must use source_family=x")
+        post_type = str(record.get("x_post_type", "")).strip().lower()
+        if post_type not in X_POST_TYPES:
+            errors.append(f"{record_id} x_post_type must be one of: " + ", ".join(sorted(X_POST_TYPES)))
+        if str(record.get("content_status", "")).strip().lower() != "present":
+            errors.append(
+                f"{record_id} content_status is not present; remove it from claim-eligible evidence"
+            )
+        if post_type == "repost":
+            repost_count += 1
+            if str(record.get("evidence_level", "")) != "E0":
+                errors.append(f"{record_id} is a repost and may only be coded E0")
+        conversation_counts[str(record["conversation_id"]).strip()] += 1
+        day_counts[_source_day(record["created_at"])] += 1
+
+    config = _source_adapter_config(study, "x")
+    conversation_share = (
+        max(conversation_counts.values()) / len(x_records) if conversation_counts else 0.0
+    )
+    day_share = max(day_counts.values()) / len(x_records) if day_counts else 0.0
+    repost_share = repost_count / len(x_records) if x_records else 0.0
+    if config is not None and not _validate_x_config(study):
+        min_conversations = int(config["min_unique_conversations"])
+        min_days = int(config["min_unique_days"])
+        if len(conversation_counts) < min_conversations:
+            errors.append(
+                f"{len(conversation_counts)} unique X conversations is below configured minimum {min_conversations}"
+            )
+        if len(day_counts) < min_days:
+            errors.append(f"{len(day_counts)} unique X days is below configured minimum {min_days}")
+        if conversation_share > float(config["max_conversation_share"]):
+            errors.append(
+                f"dominant X conversation share {conversation_share:.1%} exceeds "
+                f"{float(config['max_conversation_share']):.1%}"
+            )
+        if repost_share > float(config["max_repost_share"]):
+            errors.append(
+                f"X repost share {repost_share:.1%} exceeds {float(config['max_repost_share']):.1%}"
+            )
+        if day_share > float(config["max_single_day_share"]):
+            errors.append(
+                f"dominant X day share {day_share:.1%} exceeds {float(config['max_single_day_share']):.1%}"
+            )
+    audit.metrics["x"] = {
+        "records": len(x_records),
+        "unique_conversations": len(conversation_counts),
+        "unique_days": len(day_counts),
+        "dominant_conversation_share": round(conversation_share, 6),
+        "dominant_day_share": round(day_share, 6),
+        "repost_share": round(repost_share, 6),
+    }
+    audit.add(
+        "x_evidence",
+        "fail" if errors else "pass",
+        "; ".join(errors)
+        if errors
+        else (
+            f"{_count_label(len(x_records), 'record')} with provenance across "
+            f"{_count_label(len(conversation_counts), 'conversation')} and "
+            f"{_count_label(len(day_counts), 'day')}"
+        ),
+        "evidence",
+    )
+
+
+def _check_youtube_evidence(
+    audit: Audit, records: list[dict[str, Any]], study: dict[str, Any] | None
+) -> None:
+    youtube_records = [record for record in records if _is_youtube_record(record)]
+    if not youtube_records:
+        return
+    errors = _validate_youtube_config(study)
+    channel_counts: Counter[str] = Counter()
+    video_counts: Counter[str] = Counter()
+    for record in youtube_records:
+        record_id = str(record.get("record_id", "<unknown>"))
+        missing = _missing_fields(record, YOUTUBE_REQUIRED)
+        if missing:
+            errors.append(f"{record_id} missing YouTube provenance: " + ", ".join(missing))
+            continue
+        errors.extend(_record_connector_errors(record, study, "youtube"))
+        if str(record.get("source_family", "")).strip().lower() != "youtube":
+            errors.append(f"{record_id} must use source_family=youtube")
+        content_type = str(record.get("youtube_content_type", "")).strip().lower()
+        if content_type not in YOUTUBE_CONTENT_TYPES:
+            errors.append(
+                f"{record_id} youtube_content_type must be one of: "
+                + ", ".join(sorted(YOUTUBE_CONTENT_TYPES))
+            )
+        if str(record.get("content_status", "")).strip().lower() != "present":
+            errors.append(
+                f"{record_id} content_status is not present; remove it from claim-eligible evidence"
+            )
+        if _date_has_expired(record.get("refresh_due_at")):
+            errors.append(f"{record_id} refresh_due_at has passed or is invalid")
+        if content_type in {"top_level_comment", "reply"} and _is_missing(record.get("comment_thread_id")):
+            errors.append(f"{record_id} comment_thread_id is required for comments")
+        if content_type == "reply" and _is_missing(record.get("parent_id")):
+            errors.append(f"{record_id} parent_id is required for replies")
+        if content_type == "transcript_segment" and _is_missing(record.get("transcript_access_basis")):
+            errors.append(f"{record_id} transcript_access_basis is required for transcript segments")
+        channel_counts[str(record["source_channel"]).strip()] += 1
+        video_counts[str(record["youtube_video_id"]).strip()] += 1
+
+    config = _source_adapter_config(study, "youtube")
+    channel_share = max(channel_counts.values()) / len(youtube_records) if channel_counts else 0.0
+    video_share = max(video_counts.values()) / len(youtube_records) if video_counts else 0.0
+    if config is not None and not _validate_youtube_config(study):
+        min_channels = int(config["min_unique_channels"])
+        min_videos = int(config["min_unique_videos"])
+        if len(channel_counts) < min_channels:
+            errors.append(
+                f"{len(channel_counts)} unique YouTube channels is below configured minimum {min_channels}"
+            )
+        if len(video_counts) < min_videos:
+            errors.append(
+                f"{len(video_counts)} unique YouTube videos is below configured minimum {min_videos}"
+            )
+        if channel_share > float(config["max_channel_share"]):
+            errors.append(
+                f"dominant YouTube channel share {channel_share:.1%} exceeds "
+                f"{float(config['max_channel_share']):.1%}"
+            )
+        if video_share > float(config["max_video_share"]):
+            errors.append(
+                f"dominant YouTube video share {video_share:.1%} exceeds "
+                f"{float(config['max_video_share']):.1%}"
+            )
+    audit.metrics["youtube"] = {
+        "records": len(youtube_records),
+        "unique_channels": len(channel_counts),
+        "unique_videos": len(video_counts),
+        "dominant_channel_share": round(channel_share, 6),
+        "dominant_video_share": round(video_share, 6),
+    }
+    audit.add(
+        "youtube_evidence",
+        "fail" if errors else "pass",
+        "; ".join(errors)
+        if errors
+        else (
+            f"{_count_label(len(youtube_records), 'record')} with provenance across "
+            f"{_count_label(len(channel_counts), 'channel')} and "
+            f"{_count_label(len(video_counts), 'video')}"
+        ),
+        "evidence",
+    )
+
+
+def _check_marketplace_evidence(
+    audit: Audit,
+    records: list[dict[str, Any]],
+    study: dict[str, Any] | None,
+    adapter_name: str,
+) -> None:
+    marketplace_records = [
+        record for record in records if _is_marketplace_record(record, adapter_name)
+    ]
+    if not marketplace_records:
+        return
+    errors = _validate_marketplace_config(study, adapter_name)
+    product_counts: Counter[str] = Counter()
+    store_counts: Counter[str] = Counter()
+    brand_counts: Counter[str] = Counter()
+    month_counts: Counter[str] = Counter()
+    for record in marketplace_records:
+        record_id = str(record.get("record_id", "<unknown>"))
+        missing = _missing_fields(record, MARKETPLACE_REQUIRED)
+        if missing:
+            errors.append(
+                f"{record_id} missing {adapter_name} commerce provenance: "
+                + ", ".join(missing)
+            )
+            continue
+        errors.extend(_record_connector_errors(record, study, adapter_name))
+        if str(record.get("source_family", "")).strip().lower() != adapter_name:
+            errors.append(f"{record_id} must use source_family={adapter_name}")
+        content_type = str(record.get("commerce_content_type", "")).strip().lower()
+        transaction_status = str(record.get("commerce_transaction_status", "")).strip().lower()
+        completeness = str(record.get("source_completeness", "")).strip().lower()
+        evidence_level = str(record.get("evidence_level", ""))
+        if content_type not in COMMERCE_CONTENT_TYPES:
+            errors.append(
+                f"{record_id} commerce_content_type must be one of: "
+                + ", ".join(sorted(COMMERCE_CONTENT_TYPES))
+            )
+        if transaction_status not in COMMERCE_TRANSACTION_STATUSES:
+            errors.append(
+                f"{record_id} commerce_transaction_status must be one of: "
+                + ", ".join(sorted(COMMERCE_TRANSACTION_STATUSES))
+            )
+        if completeness not in COMMERCE_COMPLETENESS:
+            errors.append(
+                f"{record_id} source_completeness must be one of: "
+                + ", ".join(sorted(COMMERCE_COMPLETENESS))
+            )
+        if str(record.get("content_status", "")).strip().lower() != "present":
+            errors.append(
+                f"{record_id} content_status is not present; remove it from claim-eligible evidence"
+            )
+        if content_type in {"rating_only", "seller_response"} and evidence_level != "E0":
+            errors.append(f"{record_id} {content_type} may only be coded E0")
+        if content_type in {"review_snippet", "review_topic"} and evidence_level not in {
+            "E0",
+            "E1",
+            "E2",
+        }:
+            errors.append(f"{record_id} {content_type} may only be coded E0, E1, or E2")
+        if content_type == "question" and evidence_level not in {"E0", "E1"}:
+            errors.append(f"{record_id} a commerce question may only be coded E0 or E1")
+        if completeness == "rating_only" and evidence_level != "E0":
+            errors.append(f"{record_id} rating-only evidence may only be coded E0")
+        if completeness == "snippet" and evidence_level not in {"E0", "E1", "E2"}:
+            errors.append(f"{record_id} a truncated snippet may only be coded E0, E1, or E2")
+        if transaction_status in {"vine_free_product", "incentivized_disclosed"} and evidence_level in {
+            "E4+",
+            "E5",
+        }:
+            errors.append(
+                f"{record_id} {transaction_status} cannot support paid intent or realized purchase"
+            )
+        product_counts[str(record["commerce_product_id"]).strip()] += 1
+        store_counts[str(record["commerce_store_id"]).strip()] += 1
+        brand_counts[str(record["commerce_brand"]).strip().lower()] += 1
+        month_counts[_source_month(record["created_at"])] += 1
+
+    total = len(marketplace_records)
+    product_share = max(product_counts.values()) / total if product_counts else 0.0
+    store_share = max(store_counts.values()) / total if store_counts else 0.0
+    brand_share = max(brand_counts.values()) / total if brand_counts else 0.0
+    month_share = max(month_counts.values()) / total if month_counts else 0.0
+    config = _source_adapter_config(study, adapter_name)
+    if config is not None and not _validate_marketplace_config(study, adapter_name):
+        for label, counts, field_name in (
+            ("products", product_counts, "min_unique_products"),
+            ("stores", store_counts, "min_unique_stores"),
+            ("brands", brand_counts, "min_unique_brands"),
+        ):
+            minimum = int(config[field_name])
+            if len(counts) < minimum:
+                errors.append(
+                    f"{len(counts)} unique {adapter_name} {label} is below configured minimum {minimum}"
+                )
+        for label, share, field_name in (
+            ("product", product_share, "max_product_share"),
+            ("store", store_share, "max_store_share"),
+            ("brand", brand_share, "max_brand_share"),
+            ("month", month_share, "max_single_month_share"),
+        ):
+            maximum = float(config[field_name])
+            if share > maximum:
+                errors.append(
+                    f"dominant {adapter_name} {label} share {share:.1%} exceeds {maximum:.1%}"
+                )
+    audit.metrics[adapter_name] = {
+        "records": total,
+        "unique_products": len(product_counts),
+        "unique_stores": len(store_counts),
+        "unique_brands": len(brand_counts),
+        "unique_months": len(month_counts),
+        "dominant_product_share": round(product_share, 6),
+        "dominant_store_share": round(store_share, 6),
+        "dominant_brand_share": round(brand_share, 6),
+        "dominant_month_share": round(month_share, 6),
+    }
+    audit.add(
+        f"{adapter_name}_evidence",
+        "fail" if errors else "pass",
+        "; ".join(errors)
+        if errors
+        else (
+            f"{_count_label(total, 'record')} with product/variant provenance across "
+            f"{_count_label(len(product_counts), 'product')}, "
+            f"{_count_label(len(store_counts), 'store')}, and "
+            f"{_count_label(len(brand_counts), 'brand')}"
+        ),
+        "evidence",
+    )
+
+
+def _check_kickstarter_evidence(
+    audit: Audit, records: list[dict[str, Any]], study: dict[str, Any] | None
+) -> None:
+    kickstarter_records = [record for record in records if _is_kickstarter_record(record)]
+    if not kickstarter_records:
+        return
+    errors = _validate_kickstarter_config(study)
+    campaign_counts: Counter[str] = Counter()
+    creator_counts: Counter[str] = Counter()
+    day_counts: Counter[str] = Counter()
+    for record in kickstarter_records:
+        record_id = str(record.get("record_id", "<unknown>"))
+        missing = _missing_fields(record, KICKSTARTER_REQUIRED)
+        if missing:
+            errors.append(
+                f"{record_id} missing Kickstarter provenance: " + ", ".join(missing)
+            )
+            continue
+        errors.extend(_record_connector_errors(record, study, "kickstarter"))
+        if str(record.get("source_family", "")).strip().lower() != "kickstarter":
+            errors.append(f"{record_id} must use source_family=kickstarter")
+        content_type = str(record.get("kickstarter_content_type", "")).strip().lower()
+        campaign_status = str(record.get("campaign_status", "")).strip().lower()
+        commercial_status = str(record.get("commercial_status", "")).strip().lower()
+        privacy_status = str(record.get("privacy_status", "")).strip().lower()
+        evidence_level = str(record.get("evidence_level", ""))
+        if content_type not in KICKSTARTER_CONTENT_TYPES:
+            errors.append(
+                f"{record_id} kickstarter_content_type must be one of: "
+                + ", ".join(sorted(KICKSTARTER_CONTENT_TYPES))
+            )
+        if campaign_status not in KICKSTARTER_CAMPAIGN_STATUSES:
+            errors.append(
+                f"{record_id} campaign_status must be one of: "
+                + ", ".join(sorted(KICKSTARTER_CAMPAIGN_STATUSES))
+            )
+        if commercial_status not in KICKSTARTER_COMMERCIAL_STATUSES:
+            errors.append(
+                f"{record_id} commercial_status must be one of: "
+                + ", ".join(sorted(KICKSTARTER_COMMERCIAL_STATUSES))
+            )
+        if privacy_status not in KICKSTARTER_PRIVACY_STATUSES:
+            errors.append(
+                f"{record_id} privacy_status must be one of: "
+                + ", ".join(sorted(KICKSTARTER_PRIVACY_STATUSES))
+            )
+        if str(record.get("content_status", "")).strip().lower() != "present":
+            errors.append(
+                f"{record_id} content_status is not present; remove it from claim-eligible evidence"
+            )
+        if content_type in {"campaign_page", "creator_update", "faq", "tracker_snapshot"} and evidence_level != "E0":
+            errors.append(f"{record_id} {content_type} is creator/aggregate context and may only be coded E0")
+        if content_type == "funding_snapshot" and evidence_level not in {"E0", "E4+"}:
+            errors.append(f"{record_id} funding_snapshot may only be coded E0 or E4+")
+        if content_type == "funding_snapshot" and commercial_status != "public_aggregate":
+            errors.append(f"{record_id} funding_snapshot requires commercial_status=public_aggregate")
+        if commercial_status in {"pledged", "pledge_adjusted", "public_aggregate"} and evidence_level == "E5":
+            errors.append(
+                f"{record_id} {commercial_status} is not realized use and cannot be coded E5"
+            )
+        if content_type in {"pledge_record", "refund_record", "fulfillment_record"} and privacy_status == "public":
+            errors.append(
+                f"{record_id} private backer records must be deidentified or aggregated before evidence use"
+            )
+        campaign_counts[str(record["campaign_id"]).strip()] += 1
+        creator_counts[str(record["creator_id"]).strip()] += 1
+        day_counts[_source_day(record["created_at"])] += 1
+
+    total = len(kickstarter_records)
+    campaign_share = max(campaign_counts.values()) / total if campaign_counts else 0.0
+    creator_share = max(creator_counts.values()) / total if creator_counts else 0.0
+    day_share = max(day_counts.values()) / total if day_counts else 0.0
+    config = _source_adapter_config(study, "kickstarter")
+    if config is not None and not _validate_kickstarter_config(study):
+        min_campaigns = int(config["min_unique_campaigns"])
+        min_creators = int(config["min_unique_creators"])
+        if len(campaign_counts) < min_campaigns:
+            errors.append(
+                f"{len(campaign_counts)} unique Kickstarter campaigns is below configured minimum {min_campaigns}"
+            )
+        if len(creator_counts) < min_creators:
+            errors.append(
+                f"{len(creator_counts)} unique Kickstarter creators is below configured minimum {min_creators}"
+            )
+        for label, share, field_name in (
+            ("campaign", campaign_share, "max_campaign_share"),
+            ("creator", creator_share, "max_creator_share"),
+            ("day", day_share, "max_single_day_share"),
+        ):
+            maximum = float(config[field_name])
+            if share > maximum:
+                errors.append(
+                    f"dominant Kickstarter {label} share {share:.1%} exceeds {maximum:.1%}"
+                )
+    audit.metrics["kickstarter"] = {
+        "records": total,
+        "unique_campaigns": len(campaign_counts),
+        "unique_creators": len(creator_counts),
+        "unique_days": len(day_counts),
+        "dominant_campaign_share": round(campaign_share, 6),
+        "dominant_creator_share": round(creator_share, 6),
+        "dominant_day_share": round(day_share, 6),
+    }
+    audit.add(
+        "kickstarter_evidence",
+        "fail" if errors else "pass",
+        "; ".join(errors)
+        if errors
+        else (
+            f"{_count_label(total, 'record')} with campaign provenance across "
+            f"{_count_label(len(campaign_counts), 'campaign')} and "
+            f"{_count_label(len(creator_counts), 'creator')}"
+        ),
+        "evidence",
+    )
+
+
+def _check_evidence(
+    audit: Audit, paths: dict[str, Path], study: dict[str, Any] | None
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    if paths["codebook"].is_file():
+        audit.add("codebook", "pass", "03-codebook/codebook.csv is present", "evidence")
+    else:
+        audit.add("codebook", "fail", "missing 03-codebook/codebook.csv", "evidence")
+    if not paths["evidence"].is_file():
+        audit.add("evidence_records", "fail", "missing 02-data/evidence.jsonl", "evidence")
+        return [], {}
+    try:
+        records = _load_jsonl(paths["evidence"])
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        audit.add("evidence_records", "fail", f"cannot parse evidence JSONL: {exc}", "evidence")
+        return [], {}
+
+    errors: list[str] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    normalized_hashes: list[str] = []
+    role_counts: Counter[str] = Counter()
+    source_counts: Counter[str] = Counter()
+    level_counts: Counter[str] = Counter()
+    for record in records:
+        line_number = record.pop("_line_number")
+        missing = _missing_fields(record, EVIDENCE_REQUIRED)
+        if missing:
+            errors.append(f"line {line_number} missing: " + ", ".join(missing))
+            continue
+        record_id = str(record["record_id"])
+        if record_id in by_id:
+            errors.append(f"duplicate record_id: {record_id}")
+        by_id[record_id] = record
+        level = str(record["evidence_level"])
+        if level not in LEVELS:
+            errors.append(f"{record_id} has invalid evidence_level {level}")
+        role = str(record["corpus_role"])
+        if role not in CORPUS_ROLES:
+            errors.append(f"{record_id} has invalid corpus_role {role}")
+        normalized_hashes.append(str(record["normalized_text_hash"]))
+        role_counts[role] += 1
+        source_counts[str(record["source_family"])] += 1
+        level_counts[level] += 1
+
+    gates = study.get("quality_gates", {}) if isinstance(study, dict) else {}
+    min_records = int(gates.get("min_evidence_records", 1))
+    if len(records) < min_records:
+        errors.append(f"{len(records)} records is below configured minimum {min_records}")
+    required_roles = {str(value) for value in gates.get("required_corpus_roles", [])}
+    missing_roles = sorted(required_roles - set(role_counts))
+    if missing_roles:
+        errors.append("missing configured corpus roles: " + ", ".join(missing_roles))
+
+    planned_source_families: set[str] = set()
+    if paths["sources"].is_file():
+        try:
+            with paths["sources"].open(encoding="utf-8-sig", newline="") as handle:
+                planned_source_families = {
+                    str(row.get("source_family", "")).strip()
+                    for row in csv.DictReader(handle)
+                    if str(row.get("source_family", "")).strip()
+                }
+        except OSError:
+            pass
+    unplanned_source_families = sorted(set(source_counts) - planned_source_families)
+    if unplanned_source_families:
+        errors.append(
+            "evidence uses source families absent from source plan: "
+            + ", ".join(unplanned_source_families)
+        )
+
+    duplicate_count = len(normalized_hashes) - len(set(normalized_hashes))
+    duplicate_rate = duplicate_count / len(normalized_hashes) if normalized_hashes else 0.0
+    max_duplicate_rate = float(gates.get("max_normalized_duplicate_rate", 1.0))
+    if duplicate_rate > max_duplicate_rate:
+        errors.append(
+            f"normalized duplicate rate {duplicate_rate:.1%} exceeds {max_duplicate_rate:.1%}"
+        )
+    dominant_share = max(source_counts.values()) / len(records) if records and source_counts else 0.0
+    max_source_share = float(gates.get("max_source_family_share", 1.0))
+    if dominant_share > max_source_share:
+        errors.append(f"dominant source-family share {dominant_share:.1%} exceeds {max_source_share:.1%}")
+
+    audit.metrics.update(
+        {
+            "evidence_records": len(records),
+            "evidence_levels": dict(sorted(level_counts.items())),
+            "corpus_roles": dict(sorted(role_counts.items())),
+            "source_families": dict(sorted(source_counts.items())),
+            "normalized_duplicate_rate": round(duplicate_rate, 6),
+            "dominant_source_family_share": round(dominant_share, 6),
+        }
+    )
+    audit.add(
+        "evidence_records",
+        "fail" if errors else "pass",
+        "; ".join(errors) if errors else f"{len(records)} records meet configured evidence gates",
+        "evidence",
+    )
+
+    reddit_records = [record for record in records if _is_reddit_record(record)]
+    if reddit_records:
+        reddit_errors = _validate_reddit_config(study)
+        subreddit_counts: Counter[str] = Counter()
+        thread_counts: Counter[str] = Counter()
+        for record in reddit_records:
+            record_id = str(record.get("record_id", "<unknown>"))
+            missing = _missing_fields(record, REDDIT_REQUIRED)
+            if missing:
+                reddit_errors.append(f"{record_id} missing Reddit provenance: " + ", ".join(missing))
+                continue
+            reddit_errors.extend(_record_connector_errors(record, study, "reddit"))
+            if str(record.get("source_family", "")).strip().lower() != "reddit":
+                reddit_errors.append(f"{record_id} must use source_family=reddit")
+            if str(record.get("source_content_type", "")).strip().lower() not in {"post", "comment"}:
+                reddit_errors.append(f"{record_id} source_content_type must be post or comment")
+            if str(record.get("content_status", "")).strip().lower() != "present":
+                reddit_errors.append(
+                    f"{record_id} content_status is not present; remove it from claim-eligible evidence"
+                )
+            subreddit_counts[str(record["source_channel"]).strip().lower()] += 1
+            thread_counts[str(record["thread_id"]).strip()] += 1
+
+        config = _reddit_config(study)
+        subreddit_share = (
+            max(subreddit_counts.values()) / len(reddit_records) if subreddit_counts else 0.0
+        )
+        thread_share = max(thread_counts.values()) / len(reddit_records) if thread_counts else 0.0
+        if config is not None and not _validate_reddit_config(study):
+            min_subreddits = int(config["min_unique_subreddits"])
+            min_threads = int(config["min_unique_threads"])
+            max_subreddit_share = float(config["max_subreddit_share"])
+            max_thread_share = float(config["max_thread_share"])
+            if len(subreddit_counts) < min_subreddits:
+                reddit_errors.append(
+                    f"{len(subreddit_counts)} unique subreddits is below configured minimum {min_subreddits}"
+                )
+            if len(thread_counts) < min_threads:
+                reddit_errors.append(
+                    f"{len(thread_counts)} unique threads is below configured minimum {min_threads}"
+                )
+            if subreddit_share > max_subreddit_share:
+                reddit_errors.append(
+                    f"dominant subreddit share {subreddit_share:.1%} exceeds {max_subreddit_share:.1%}"
+                )
+            if thread_share > max_thread_share:
+                reddit_errors.append(
+                    f"dominant Reddit thread share {thread_share:.1%} exceeds {max_thread_share:.1%}"
+                )
+        audit.metrics["reddit"] = {
+            "records": len(reddit_records),
+            "unique_subreddits": len(subreddit_counts),
+            "unique_threads": len(thread_counts),
+            "dominant_subreddit_share": round(subreddit_share, 6),
+            "dominant_thread_share": round(thread_share, 6),
+        }
+        audit.add(
+            "reddit_evidence",
+            "fail" if reddit_errors else "pass",
+            "; ".join(reddit_errors)
+            if reddit_errors
+            else (
+                f"{_count_label(len(reddit_records), 'record')} with route provenance across "
+                f"{_count_label(len(subreddit_counts), 'subreddit')} and "
+                f"{_count_label(len(thread_counts), 'thread')}"
+            ),
+            "evidence",
+        )
+    _check_x_evidence(audit, records, study)
+    _check_youtube_evidence(audit, records, study)
+    for adapter_name in MARKETPLACE_ADAPTERS:
+        _check_marketplace_evidence(audit, records, study, adapter_name)
+    _check_kickstarter_evidence(audit, records, study)
+    return records, by_id
+
+
+def _check_decisions(
+    audit: Audit,
+    paths: dict[str, Path],
+    study: dict[str, Any] | None,
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> None:
+    if not paths["judgments"].is_file():
+        audit.add(
+            "demand_judgments",
+            "fail",
+            "missing 04-findings/demand-judgments.json",
+            "decision",
+        )
+        return
+    try:
+        judgments = _load_json(paths["judgments"])
+    except (OSError, json.JSONDecodeError) as exc:
+        audit.add("demand_judgments", "fail", f"cannot parse demand judgments: {exc}", "decision")
+        return
+    if not isinstance(judgments, list) or not judgments:
+        audit.add("demand_judgments", "fail", "demand judgments must be a non-empty array", "decision")
+        return
+
+    errors: list[str] = []
+    allowed_status = {"hypothesis", "needs-validation", "validated", "rejected", "deprioritized"}
+    allowed_confidence = {"low", "medium", "high"}
+    require_counter = bool(
+        (study or {}).get("quality_gates", {}).get("require_counter_evidence_for_validated", True)
+    )
+    for index, judgment in enumerate(judgments, start=1):
+        if not isinstance(judgment, dict):
+            errors.append(f"judgment {index} must be an object")
+            continue
+        judgment_id = str(judgment.get("id") or index)
+        array_fields = {
+            "problem_evidence_ids",
+            "solution_evidence_ids",
+            "commercial_evidence_ids",
+            "counter_evidence_ids",
+            "gaps",
+        }
+        missing = sorted(field for field in JUDGMENT_REQUIRED if field not in judgment)
+        missing.extend(
+            sorted(
+                field
+                for field in JUDGMENT_REQUIRED - array_fields
+                if field in judgment and _is_missing(judgment[field])
+            )
+        )
+        if missing:
+            errors.append(f"{judgment_id} missing: " + ", ".join(missing))
+            continue
+        if judgment["status"] not in allowed_status:
+            errors.append(f"{judgment_id} has invalid status {judgment['status']}")
+        if judgment["confidence"] not in allowed_confidence:
+            errors.append(f"{judgment_id} has invalid confidence {judgment['confidence']}")
+        reference_groups = {
+            "problem": (judgment["problem_evidence_ids"], {"E1", "E2"}),
+            "solution": (judgment["solution_evidence_ids"], {"E3"}),
+            "commercial": (judgment["commercial_evidence_ids"], {"E4+", "E5"}),
+            "counter": (judgment["counter_evidence_ids"], {"E4-", "E0", "E1", "E2", "E3", "E4+", "E5"}),
+        }
+        all_references = {
+            str(value) for values, _ in reference_groups.values() for value in values
+        }
+        unknown = sorted(all_references - set(evidence_by_id))
+        if unknown:
+            errors.append(f"{judgment_id} references unknown evidence: " + ", ".join(unknown))
+        if judgment["status"] == "validated":
+            for chain_name in ("problem", "solution", "commercial"):
+                ids, accepted_levels = reference_groups[chain_name]
+                observed_levels = {
+                    str(evidence_by_id[str(value)]["evidence_level"])
+                    for value in ids
+                    if str(value) in evidence_by_id
+                }
+                if not observed_levels.intersection(accepted_levels):
+                    errors.append(f"{judgment_id} lacks {chain_name} evidence for validated status")
+            if require_counter and not judgment["counter_evidence_ids"]:
+                errors.append(f"{judgment_id} lacks counter-evidence for validated status")
+
+    audit.metrics["demand_judgments"] = len(judgments)
+    audit.metrics["validated_judgments"] = sum(
+        1 for item in judgments if isinstance(item, dict) and item.get("status") == "validated"
+    )
+    audit.add(
+        "demand_judgments",
+        "fail" if errors else "pass",
+        "; ".join(errors)
+        if errors
+        else (
+            "1 judgment has traceable evidence references"
+            if len(judgments) == 1
+            else f"{len(judgments)} judgments have traceable evidence references"
+        ),
+        "decision",
+    )
+
+
+def audit_study(root: Path, stage: str) -> Audit:
+    root = root.resolve()
+    audit = Audit(root, stage)
+    paths = _study_paths(root)
+    study = _check_design(audit, paths)
+    if stage == "design":
+        return audit
+    _, evidence_by_id = _check_evidence(audit, paths, study)
+    if stage == "evidence":
+        return audit
+    _check_decisions(audit, paths, study, evidence_by_id)
+    return audit
+
+
+def _write_report(audit: Audit) -> tuple[Path, Path]:
+    paths = _study_paths(audit.study_dir)
+    paths["audit_dir"].mkdir(parents=True, exist_ok=True)
+    json_path = paths["audit_dir"] / "latest.json"
+    md_path = paths["audit_dir"] / "latest.md"
+    payload = audit.as_dict()
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    lines = [
+        "# SURE audit",
+        "",
+        f"- Status: **{audit.status}**",
+        f"- Stage: `{audit.requested_stage}`",
+        f"- Study: `{audit.study_dir}`",
+        "",
+        "## Checks",
+        "",
+        "| Stage | Check | Status | Detail |",
+        "| --- | --- | --- | --- |",
+    ]
+    for finding in audit.findings:
+        detail = finding.detail.replace("|", "\\|")
+        lines.append(f"| {finding.stage} | `{finding.check_id}` | {finding.status} | {detail} |")
+    lines.extend(
+        [
+            "",
+            "## Interpretation boundary",
+            "",
+            payload["meaning"],
+            "",
+        ]
+    )
+    md_path.write_text("\n".join(lines), encoding="utf-8")
+    return json_path, md_path
+
+
+def command_init(args: argparse.Namespace) -> int:
+    target = Path(args.study_dir).resolve()
+    if target.exists() and any(target.iterdir()):
+        print(f"refusing to overwrite non-empty directory: {target}", file=sys.stderr)
+        return 2
+    template = Path(__file__).resolve().parents[1] / "assets" / "study-template"
+    if not template.is_dir():
+        print(f"study template not found: {template}", file=sys.stderr)
+        return 2
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(template, target, dirs_exist_ok=True)
+    connector_template_files = {
+        template.parent / "collection-manifest-template.json": (
+            target / "01-sources" / "collection-manifest-template.json"
+        ),
+        template.parent / "raw-connector-envelope-template.jsonl": (
+            target / "02-data" / "raw" / "raw-connector-envelope-template.jsonl"
+        ),
+    }
+    for source, destination in connector_template_files.items():
+        if source.is_file():
+            shutil.copyfile(source, destination)
+    study_path = target / "study.json"
+    study = _load_json(study_path)
+    study["study_id"] = args.study_id
+    study["title"] = args.title
+    study["decision"]["question"] = args.decision
+    platform_templates: list[str] = []
+    for platform in sorted(set(args.platform)):
+        source = template.parent / f"{platform}-route-template.csv"
+        destination = target / "01-sources" / f"{platform}-routes.csv"
+        shutil.copyfile(source, destination)
+        platform_templates.append(str(destination))
+        adapters = study.get("source_adapters", {})
+        if isinstance(adapters, dict) and isinstance(adapters.get(platform), dict):
+            adapters[platform]["enabled"] = True
+    study_path.write_text(json.dumps(study, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "status": "created",
+                "study_dir": str(target),
+                "platform_templates": platform_templates,
+                "connector_templates": [
+                    str(path) for path in connector_template_files.values()
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_check(args: argparse.Namespace) -> int:
+    audit = audit_study(Path(args.study_dir), args.stage)
+    payload = audit.as_dict()
+    if args.write_report:
+        json_path, md_path = _write_report(audit)
+        payload["report_files"] = [str(json_path), str(md_path)]
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if audit.status == "pass" else 1
+
+
+def command_connectors(args: argparse.Namespace) -> int:
+    try:
+        registry = _load_connector_registry()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"cannot load connector registry: {exc}", file=sys.stderr)
+        return 2
+    connectors = [item for item in registry["connectors"] if isinstance(item, dict)]
+    if args.platform:
+        connectors = [item for item in connectors if item.get("platform") == args.platform]
+    if not args.include_blocked:
+        connectors = [item for item in connectors if item.get("decision") != "blocked"]
+    connectors.sort(key=lambda item: (str(item.get("platform")), str(item.get("id"))))
+    print(
+        json.dumps(
+            {
+                "schema_version": registry.get("schema_version"),
+                "reviewed_at": registry.get("reviewed_at"),
+                "platform": args.platform,
+                "include_blocked": args.include_blocked,
+                "count": len(connectors),
+                "connectors": connectors,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sure",
+        description="Initialize and audit a SURE user-demand research study.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    init_parser = subparsers.add_parser("init", help="create a study workspace from the bundled template")
+    init_parser.add_argument("study_dir")
+    init_parser.add_argument("--study-id", required=True)
+    init_parser.add_argument("--title", required=True)
+    init_parser.add_argument("--decision", required=True)
+    init_parser.add_argument(
+        "--platform",
+        action="append",
+        choices=("reddit", "x", "youtube", "amazon", "jd", "taobao", "kickstarter"),
+        default=[],
+        help="copy and enable a platform route template; repeat for multiple platforms",
+    )
+    init_parser.set_defaults(func=command_init)
+
+    check_parser = subparsers.add_parser("check", help="audit one research stage")
+    check_parser.add_argument("study_dir")
+    check_parser.add_argument("--stage", choices=STAGES, default="full")
+    check_parser.add_argument("--write-report", action="store_true")
+    check_parser.set_defaults(func=command_check)
+
+    connector_parser = subparsers.add_parser(
+        "connectors", help="list reviewed open-source connector decisions"
+    )
+    connector_parser.add_argument(
+        "--platform",
+        choices=("reddit", "x", "youtube", "amazon", "jd", "taobao", "kickstarter"),
+    )
+    connector_parser.add_argument(
+        "--include-blocked",
+        action="store_true",
+        help="include rejected repositories and their reasons",
+    )
+    connector_parser.set_defaults(func=command_connectors)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

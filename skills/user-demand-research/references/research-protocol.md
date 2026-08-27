@@ -2,16 +2,33 @@
 
 ## Contents
 
+0. Stage contract
 1. Research contract
 2. SURE unit of analysis
 3. Scenario-universe construction
 4. Sampling by evidence role
+4A. Platform source adapters and open-source connector gate
 5. Collection and data layers
 6. Discovery and coding
-7. Evidence and opportunity scoring
+7. Evidence and demand-judgment scoring
 8. Human validation
 9. Stopping rules
 10. Failure modes
+
+## 0. Stage contract
+
+Treat the method as four gated stages. Every stage has a fixed input, artifact, and exit test.
+
+| Stage | Input | Work | Required artifact | Exit test |
+| --- | --- | --- | --- | --- |
+| Design | Decision question and solution boundary | Define hypotheses, falsifiers, scene universe, evidence roles, source routes, and quality gates | `study.json`, `01-sources/source-plan.csv` | `sure.py check STUDY --stage design` passes |
+| Evidence | Passing design plus permitted source access or an existing corpus | Pilot, collect/import, normalize, deduplicate, code, and calibrate | `02-data/evidence.jsonl`, raw/views, codebook and gold set | `sure.py check STUDY --stage evidence` passes |
+| Decision | Passing evidence stage | Link problem, solution, commercial, and counter-evidence to one role/scene/task | `04-findings/demand-judgments.json` | `sure.py check STUDY --stage full` passes |
+| Product validation | Audited demand judgment | Interview, observe, prototype, price-test, pilot, or inspect authorized behavior data | Experiment record owned by the product team | Pre-declared success/failure threshold is met |
+
+The CLI checks structure, configured coverage, duplicates, concentration, and evidence-chain eligibility. It does not certify population representativeness or the truth of a claim.
+
+For file-by-file Agent execution, read [agent-runbook.md](agent-runbook.md).
 
 ## 1. Research contract
 
@@ -61,15 +78,15 @@ Build the first scene universe from domain knowledge, adjacent-category research
 
 ## 4. Sampling by evidence role
 
-Design quotas around what a record can prove:
+Design quotas around what a record can prove. Use the machine-readable role codes shown below in `source-plan.csv` and `evidence.jsonl`:
 
-| Evidence role | Typical source | What it can support | Common bias |
-| --- | --- | --- | --- |
-| Direct solution feedback | Product community, launch comments, category reviews | Feature response, acceptance, failure | Owner/enthusiast self-selection |
-| Open-scene discovery | Task communities, professional forums, activity channels | Jobs, triggers, substitutes, consequences | Cannot prove solution preference |
-| Substitute/rejector | Competitor users, cancellation/return threads, non-user communities | Reasons not to switch, adequate alternatives | Hard to find with product keywords |
-| Post-purchase/support | Ecommerce reviews, issues, tickets, support forums | Reliability, integration, maintenance, return | Overweights failures or active owners |
-| Mainstream/control | Adjacent mainstream users and non-adopters | Base behavior and non-consumption | Lower direct relevance |
+| Code | Evidence role | Typical source | What it can support | Common bias |
+| --- | --- | --- | --- | --- |
+| `direct_solution` | Direct solution feedback | Product community, launch comments, category reviews | Feature response, acceptance, failure | Owner/enthusiast self-selection |
+| `open_scene` | Open-scene discovery | Task communities, professional forums, activity channels | Jobs, triggers, substitutes, consequences | Cannot prove solution preference |
+| `substitute_rejector` | Substitute/rejector | Competitor users, cancellation/return threads, non-user communities | Reasons not to switch, adequate alternatives | Hard to find with product keywords |
+| `post_purchase_support` | Post-purchase/support | Ecommerce reviews, issues, tickets, support forums | Reliability, integration, maintenance, return | Overweights failures or active owners |
+| `control` | Mainstream/control | Adjacent mainstream users and non-adopters | Base behavior and non-consumption | Lower direct relevance |
 
 Stratify within roles by source family, platform, time, language/market context, scene, stance, and user state. Define caps for dominant strata. Quotas are a research design, not estimates of real market composition.
 
@@ -83,6 +100,18 @@ Run a pilot before fixing targets. Estimate:
 - month and source-family concentration;
 - access and compliance risk;
 - marginal new-theme yield.
+
+### 4A. Platform source adapters and open-source connector gate
+
+Reddit, X, and YouTube use the same evidence roles and E-levels but require different independence units:
+
+- Reddit: subreddit and thread;
+- X: conversation, post type, and day/event window;
+- YouTube: channel, video, comment thread, and top-level/reply relation.
+
+Do not flatten these hierarchies into a row count. Preserve route/query settings and cap dominant hierarchy units before synthesis. Treat every platform as one source family regardless of the number of communities, queries, channels, videos, products, stores, or campaigns.
+
+Before collection, read `open-source-connectors.md`, `connector-contract.md`, the matching shared adapter, and the platform reference. Select a non-blocked connector, pin its revision and license, review platform access and data rights separately, write a run manifest, and run the Evidence gate. X reposts are distribution signals, not new demand statements. YouTube comment-thread responses may omit replies and API data requires refresh/deletion handling. AmazonReviews2023 is historical through September 2023. The reviewed JD, Taobao, and Kickstarter candidates are blocked. AI summaries from any platform are discovery queues, not evidence.
 
 ## 5. Collection and data layers
 
@@ -117,7 +146,7 @@ Rank open candidates using unique thread/product support, platform/source-family
 
 Core coding fields should cover role, scene, task, trigger, desired outcome, substitute, friction, consequence, frequency, severity, solution response, price/purchase evidence, user state, collaboration, integration, safety/privacy/compliance, and confidence.
 
-## 7. Evidence and opportunity scoring
+## 7. Evidence and demand-judgment scoring
 
 Assign the strongest directly observed level:
 
@@ -133,11 +162,11 @@ Assign the strongest directly observed level:
 
 Do not collapse the levels into one undifferentiated count.
 
-Create an opportunity thesis only when the following can be filled with evidence:
+Create a demand judgment only when the following can be filled with evidence:
 
 > For [role], when [trigger/scene], achieving [outcome] is difficult because [substitute + friction], causing [consequence]. [Solution] is accepted under [conditions], with [commercial evidence] and [counter-evidence].
 
-Score opportunities on separate dimensions rather than hiding judgment in one number:
+Score demand judgments on separate dimensions rather than hiding judgment in one number:
 
 - task frequency;
 - severity/consequence;
@@ -158,7 +187,7 @@ Build a gold set stratified across source family, month, evidence role, scene, s
 
 Use LLM coding only on privacy-safe records. Record model, prompt, version/date, temperature or deterministic setting, codebook version, confidence, and adjudication result. Recalibrate after source-mix shifts.
 
-Validate high-priority opportunities with interviews, workflow observation, concept tests, usability tests, price tests, or authorized business data. Large public corpora discover and rank hypotheses; they do not remove the need for direct validation.
+Validate high-priority demand judgments with interviews, workflow observation, concept tests, usability tests, price tests, or authorized business data. Large public corpora discover and rank hypotheses; they do not remove the need for direct validation.
 
 ## 9. Stopping rules
 
@@ -185,4 +214,4 @@ Restart when a product release, new market, new language, source-mix change, cod
 - **Open-scene text equals product demand**: keep corpus roles and evidence eligibility explicit.
 - **Automatic labels become facts**: retain full text, confidence, versions, and gold-set performance.
 - **Missing source silently filled by easy data**: preserve the gap and redesign the route for the same evidence role.
-- **Blocked access bypassed**: stop and use a permitted API, user-authorized export, public research dataset, or another source.
+- **Blocked access bypassed**: stop and use a registry-approved OSS client on a permitted API, a rights-reviewed historical dataset, participant-authorized material, or another source family.

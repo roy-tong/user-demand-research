@@ -1,59 +1,70 @@
-# Research contract: [study name]
+# 研究契约：[研究名称]
 
-## Decision
+## 1. 这项研究要改变的决定
 
-- Decision this study will change:
-- Decision owner and deadline:
-- Options currently under consideration:
-- Minimum evidence needed to choose:
+- 决策问题：
+- 决策负责人：
+- 最晚决策时间：
+- 当前可选方案：
+- 每个方案所需的最低证据：
 
-## Scope
+合格写法：`是否为维修工程师的远程指导场景制作 AI 眼镜原型，还是继续优化手机方案？`
 
-- Product/solution boundary:
-- Adjacent categories:
-- Target roles and markets:
-- Language strata:
-- Source-time window:
-- Unit of observation:
-- Explicitly prohibited inferences:
+不合格写法：`研究一下维修行业的用户需求。`
 
-## Question map
+## 2. 研究边界
 
-| Layer | Questions |
+- 目标用户与角色：
+- 市场与语言：
+- 材料发生时间范围：
+- 一条记录代表什么：
+- 允许使用的来源：
+- 本研究明确禁止推断的内容：
+
+## 3. 假设与证伪条件
+
+| ID | 假设 | 哪些观察支持它 | 出现什么证据就应放弃或降级 |
+| --- | --- | --- | --- |
+| H1 | | | |
+
+证伪条件必须可观察。`用户可能不需要`无法执行；`在目标任务中，手机方案可在 30 秒内完成且多数概念测试没有 E3 接受证据`可以执行。
+
+## 4. 问题地图
+
+| 层次 | 需要回答的问题 |
 | --- | --- |
-| Activity | What is the user trying to accomplish, where, and when? |
-| Current behavior | What do they use or do today, including non-consumption? |
-| Cost/consequence | What friction and consequence follow? |
-| Solution response | What conditions lead to acceptance or rejection? |
-| Commercial behavior | Who decides, pays, deploys, retains, returns, or expands? |
+| 活动与场景 | 谁在什么环境和触发条件下要做什么？ |
+| 当前行为 | 现在使用什么产品、流程、人或不消费方案？ |
+| 成本与后果 | 时间、金钱、认知、舒适度、集成、风险和返工代价是什么？ |
+| 方案反应 | 哪些条件让用户接受、拒绝或修改研究中的方案？ |
+| 商业行为 | 谁决定、付费、部署、保留、退货、续费或扩张？ |
 
-## Hypotheses and falsifiers
+## 5. 来源与证据角色
 
-| Hypothesis | Evidence that would support it | Evidence that would falsify it |
-| --- | --- | --- |
-| | | |
+| 证据角色 | 计划来源 | 目标 | 单一路线占比上限 | 访问状态 | 已知偏差 |
+| --- | --- | ---: | ---: | --- | --- |
+| `direct_solution` | | | | | |
+| `open_scene` | | | | | |
+| `substitute_rejector` | | | | | |
+| `post_purchase_support` | | | | | |
+| `control` | | | | | |
 
-## Sampling matrix
+## 6. 质量门槛
 
-| Evidence role | Source families | Time/market strata | Target | Cap | Access status |
-| --- | --- | --- | ---: | ---: | --- |
-| Direct solution feedback | | | | | |
-| Open-scene discovery | | | | | |
-| Substitute/rejector | | | | | |
-| Post-purchase/support | | | | | |
-| Mainstream/control | | | | | |
+- 最低有效证据记录数：
+- 必须覆盖的证据角色：
+- 单一来源家族占比上限：
+- 标准化文本重复率上限：
+- 人工金标准与关键字段一致性要求：
+- 标为 `validated` 时是否强制要求反证：
 
-## Quality gates
+若使用 Reddit、X、YouTube、Amazon、京东、淘宝/天猫或 Kickstarter，先从机器清单选择未被阻断的 GitHub 开源连接器。填写连接器 ID、固定 commit、代码许可证、访问依据、平台条款与数据权利复核日期、数据使用依据、保留/刷新规则、原始链接要求，以及对应的平台层级与集中度门槛。平台检索路线另存为 `01-sources/<platform>-routes.csv`，每次采集另存 `01-sources/manifests/<collection_run_id>.json`。没有可用连接器时保留 blocked 路线，不得换成商业服务、商家接口或登录爬虫。
 
-- Strict-primary record target:
-- Source-family/platform/month caps:
-- Critical evidence-role minimums:
-- Duplicate and missingness limits:
-- Gold-set and coding-quality target:
-- Claim-eligibility rules:
+## 7. 停止与重新启动
 
-## Stop/restart rules
+- 停止扩量的条件：
+- 中止某个方向的条件：
+- 需要重新启动研究的变化：
+- 被阻断的来源与允许的替代路线：
 
-- Stop when:
-- Restart when:
-- Blocked routes and permitted alternatives:
+正式运行时，以 CLI 生成的 `study.json` 和 `01-sources/source-plan.csv` 为机器可读版本。本模板用于评审和沟通。
