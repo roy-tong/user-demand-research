@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0 — 2026-09-21
+
+- Added `skills/user-demand-research/scripts/connectors/`: a first-party collection/cleaning toolbox consolidated from finished research projects (脑机接口调研, Tiiny 用户研究), project-agnostic and documented in its own README (Chinese, per repo convention): a merged two-generation legacy Reddit archive collector (sub-window slicing, shard support, rate-limit backoff, whole-route 404 blacklist, effective `--start`, month range derived from CLI instead of hardcoded years), the Tiiny `common.py` schema/quality family plus its Arctic Shift cursor collector, Amazon Reviews 2023 HF-streaming and manifest scripts, a concurrent Range downloader, and a reusable `clean_screen_corpus.py` stage (PII scrubbing, stable derived ids, dedup, envelope output, state.json resume, audit). Hardcoded SALT/User-Agent/window constants became CLI arguments. The tools are deliberately NOT registered in `assets/open-source-connectors.json`; the toolbox README records why (first-party scripts have no upstream revision to pin, and enabling the non-official archive route is a four-gate review decision, not a side effect of collecting tools).
+
 ## 1.9.0 — 2026-08-27
 
 - Added unnamed-experience research (命名前研究) for frontier products without settled vocabulary, with the grounding reference covering edge-language mining, substitute-behavior archaeology (E2 demand fossils), psychophysical dimension mapping, cross-domain literature anchors, and first-principles derivation.

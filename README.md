@@ -364,6 +364,7 @@ Agent 调用 `sure_plan` 得到配额与任务清单，按 Skill 协议补全设
 | `skills/user-demand-research/assets/*-route-template.csv` | 平台检索与监听路线模板 |
 | `skills/user-demand-research/scripts/sure.py` | plan / init / check / signals / report / connectors 命令 |
 | `skills/user-demand-research/scripts/sure_mcp.py` | 纯标准库 MCP stdio 服务器，暴露同一组命令为 MCP 工具 |
+| `skills/user-demand-research/scripts/connectors/` | 从已完成研究项目收编的第一方采集/清洗工具箱（legacy Reddit 归档采集、Arctic Shift 游标采集、Amazon Reviews 2023 流式与分片下载、通用 clean→screen 阶段）；未登记进连接器注册表，原因见其 README |
 | `examples/sample-study/` | 合成数据完整样例 |
 | `tests/` | CLI 正向与失败测试 |
 

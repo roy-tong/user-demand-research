@@ -16,6 +16,7 @@ Stable raw base: https://raw.githubusercontent.com/roy-tong/user-demand-research
 - [MCP server sure_mcp.py](skills/user-demand-research/scripts/sure_mcp.py): stdio JSON-RPC, same commands as tools (`sure_plan`, `sure_init`, `sure_check`, `sure_signals`, `sure_report`, `sure_connectors`, `sure_platform_map`). Registration snippets are in the README's "三种接入方式" section.
 - [Connector registry](skills/user-demand-research/assets/open-source-connectors.json): machine-readable decisions (`supported` / `historical_only` / `blocked`) with pinned commits, licenses, access bases, and the Reddit 2026-09-30 policy watch.
 - [Platform map](skills/user-demand-research/assets/platform-map.json): how regions (cn / overseas / global) and platform types (forum, social, video, ecommerce, crowdfunding) resolve to platforms.
+- [Collected toolbox connectors/](skills/user-demand-research/scripts/connectors/README.md): first-party collection/cleaning scripts consolidated from finished research projects (legacy Reddit archive collector with sharding/backoff/resume, Arctic Shift cursor collector, Amazon Reviews 2023 streaming + Range downloader, reusable clean-screen stage). Not registered in the connector registry — see the toolbox README for why.
 
 ## Method references
 
