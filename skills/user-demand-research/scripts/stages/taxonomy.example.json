@@ -1,0 +1,81 @@
+{
+  "study_id": "example-ai-glasses",
+  "primary_after_utc": 1672531200,
+  "author_salt": "example-study-salt-v1",
+  "default_source_role": "discussion",
+
+  "label_rules": {
+    "scenario_labels": {
+      "travel_translation_navigation": ["travel", "translate", "translation", "directions", "navigation", "airport"],
+      "accessibility_captioning_assistive": ["caption", "captions", "subtitle", "hearing", "deaf", "low vision"],
+      "productivity_spatial_monitor": ["monitor", "screen", "display", "macbook", "coding", "productivity"]
+    },
+    "pain_point_labels": {
+      "battery_too_short": ["battery", "dies", "drain", "charging"],
+      "weight_fit_comfort": ["heavy", "weight", "uncomfortable", "fit", "nose"],
+      "price_value_not_worth": ["expensive", "not worth", "waste of money"]
+    },
+    "user_segment_labels": {
+      "developer_builder": ["developer", "code", "sdk", "api", "github"],
+      "accessibility_user": ["deaf", "hard of hearing", "low vision", "blind"]
+    }
+  },
+
+  "product_terms": {
+    "Ray-Ban Meta": ["ray-ban meta", "ray ban meta", "meta smart glasses"],
+    "XREAL": ["xreal", "nreal", "xreal air"]
+  },
+  "product_metadata": {
+    "Ray-Ban Meta": {"form_factor": "no_display_camera_audio_ai", "price_band_hint": "mid_consumer_200_399"},
+    "XREAL": {"form_factor": "binocular_display_media_productivity", "price_band_hint": "premium_consumer_400_699"}
+  },
+
+  "relevance_terms": [
+    "ai glasses", "smart glasses", "ar glasses", "display glasses",
+    "waveguide", "smart eyewear", "wearable ai", "hud"
+  ],
+
+  "region_rules": {
+    "north_america": ["usa", "america", "canada", "usd", "best buy"],
+    "east_asia": ["japan", "korea", "china", "bilibili", "rakuten", "日本", "中国"]
+  },
+  "region_code_markets": {"US": "north_america", "CA": "north_america", "JP": "east_asia", "CN": "east_asia"},
+  "region_platforms": {"east_asia": ["bilibili", "zhihu", "xiaohongshu", "rakuten"]},
+
+  "sample_bucket": {
+    "platform_buckets": {
+      "github": "support_issue",
+      "kickstarter": "backer_preorder_or_fulfillment",
+      "amazon": "buyer_owner_review"
+    },
+    "ordered_rules": [
+      {"bucket": "rejector_returned_or_abandoned", "terms": ["not worth", "gave up", "returned", "refund", "deal breaker"]},
+      {"bucket": "privacy_bystander_or_policy", "terms": ["privacy", "creepy", "bystander", "surveillance"]},
+      {"bucket": "buyer_owner_review", "terms": ["i bought", "i own", "i have the"]}
+    ],
+    "default": "general_discussion"
+  },
+
+  "control_buckets": [
+    "rejector_returned_or_abandoned",
+    "privacy_bystander_or_policy"
+  ],
+  "control_min_relevance": 0.15,
+
+  "excluded_corpus_roles": [
+    {"corpus_role": "open_scene_discovery", "unless_field": "product_demand_evidence_eligible"}
+  ],
+
+  "quality_penalties": {"too_short": 0.35},
+
+  "signal_stopwords": ["ray-ban", "meta", "xreal", "viture"],
+  "signal_noise_phrases": ["generation mode subagent"],
+  "signal_cjk_noise": ["智能眼镜"],
+
+  "export_fields": ["record_id", "source_platform", "created_at", "product_hint", "text_excerpt"],
+  "export_list_fields": ["scenario_labels", "pain_point_labels", "market_region_labels"],
+
+  "field_aliases": {
+    "product": ["设备名", "眼镜型号"]
+  }
+}

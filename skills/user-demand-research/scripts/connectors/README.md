@@ -11,12 +11,14 @@
 | `collect_legacy_reddit.py` | 脑机接口调研（两代实现合并） | 社区×月×子窗口的 legacy 公开归档采集：分片、退避、断点续采 |
 | `common.py` | Tiiny 用户研究 | 共享助手：schema 规范化、质量分、匿名化哈希、JSONL IO |
 | `collect_arctic_reddit.py` | Tiiny 用户研究 | 同一归档端点的游标分页采集器（按时间窗倒序翻页到穷尽） |
+| `collect_hn.py` | Tiiny 用户研究（≈AI眼镜/泛具身，字节级相同） | Hacker News 公开 API 采集（Algolia 端点），2026-10 补收编 |
+| `collect_pullpush_reddit.py` | Tiiny 用户研究（≈AI眼镜/泛具身，字节级相同） | PullPush Reddit 备用源采集器，2026-10 补收编 |
 | `collect_amazon_reviews_2023.py` | Tiiny 用户研究 | HF 流式两遍法采集 Amazon Reviews 2023（元数据建 ASIN 白名单 → 评论过滤） |
 | `amazon_reviews_2023_manifest.py` | Tiiny 用户研究 | HF tree API 拉数据集文件清单（路径/大小/oid），供下载前规划 |
 | `range_download.py` | 脑机接口调研 | 并发 Range 分片下载器，可断点续传，适合 GB 级公开数据文件 |
 | `clean_screen_corpus.py` | 脑机接口调研（三个脚本的模式抽取） | collect→screen→clean 通用阶段：PII 打码、去重、信封写出、state 断点、审计输出 |
 
-源脚本**均未改动**，仍在各自项目内使用；本目录是收编副本的通用化版本。
+源脚本最初**均未改动**地留在各自项目内；2026-10 清理时，`collect_arctic_reddit.py`/`collect_hn.py`/`collect_pullpush_reddit.py` 在项目侧的重复副本已删除（各项目 scripts/ 留有迁移指针），本目录是唯一上游。
 
 ---
 

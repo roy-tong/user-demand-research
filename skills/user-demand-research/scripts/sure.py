@@ -13,6 +13,7 @@ import csv
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -3178,6 +3179,40 @@ def command_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# Thin forwarder to the consolidated stage toolbox (scripts/stages/).
+# The stage scripts own dataset-pipeline behavior (labeling, dataset building,
+# audit workbooks); sure.py only routes and passes the exit code through.
+STAGES_DIR = Path(__file__).resolve().parent / "stages"
+
+STAGE_COMMANDS = (
+    "import-feedback-export",
+    "label-feedback",
+    "build-primary-dataset",
+    "build-month-balanced-dataset",
+    "extract-candidate-signals",
+    "export-metadata-detail",
+    "audit-workbook",
+)
+
+
+def command_stage(args: argparse.Namespace) -> int:
+    stage = str(args.stage_name).replace("_", "-")
+    if stage not in STAGE_COMMANDS:
+        print(
+            json.dumps(
+                {"status": "error", "unknown_stage": stage, "known_stages": list(STAGE_COMMANDS)},
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    script = STAGES_DIR / f"{stage.replace('-', '_')}.py"
+    if not script.exists():
+        print(json.dumps({"status": "error", "missing_script": str(script)}, ensure_ascii=False))
+        return 2
+    completed = subprocess.run([sys.executable, str(script)] + list(args.stage_args))
+    return int(completed.returncode)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sure",
@@ -3284,6 +3319,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="include rejected repositories and their reasons",
     )
     connector_parser.set_defaults(func=command_connectors)
+
+    stage_parser = subparsers.add_parser(
+        "stage",
+        help="forward to a consolidated dataset-pipeline stage script (scripts/stages/); "
+        "everything after the stage name is passed through verbatim",
+    )
+    stage_parser.add_argument(
+        "stage_name",
+        choices=STAGE_COMMANDS,
+        help="label-feedback, build-primary-dataset, audit-workbook, ... (see scripts/stages/README.md)",
+    )
+    stage_parser.add_argument("stage_args", nargs=argparse.REMAINDER)
+    stage_parser.set_defaults(func=command_stage)
     return parser
 
 

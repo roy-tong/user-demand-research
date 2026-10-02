@@ -287,7 +287,7 @@ ln -s "$(pwd)/user-demand-research/skills/user-demand-research" ~/.codex/skills/
 同一套能力提供三个入口，按 Agent 的形态选择，也可以组合使用：
 
 - **Skill**（`skills/user-demand-research/SKILL.md`）：研究判断、模式选择和安全边界。给会读协议的 Agent（Codex、Claude Code 等）自动发现和遵循。
-- **CLI**（`scripts/sure.py`）：确定性操作，`plan / init / check / signals / report / connectors`。给脚本、CI 和直接执行。
+- **CLI**（`scripts/sure.py`）：确定性操作，`plan / init / check / signals / report / connectors`，以及向 stages 工具箱转发的 `stage` 子命令。给脚本、CI 和直接执行。
 - **MCP 服务器**（`scripts/sure_mcp.py`）：把 CLI 的同一组操作暴露为 MCP 工具，给 MCP-first 的客户端（Claude Code、ZCode、Cursor、Cline、Windsurf 等）。纯标准库实现 stdio 传输，无第三方依赖、无网络行为；服务器只搬运确定性操作，不增加研究判断——判断仍属于 Skill 协议。
 
 MCP 工具清单：`sure_plan`、`sure_init`、`sure_check`、`sure_signals`、`sure_report`、`sure_connectors`、`sure_platform_map`。工具结果内嵌 CLI 退出码：`0` 成功，`1` 门槛未过（合法的研究状态），`3` 无可行平台（同样是研究状态，要求报告缺口而不是换路线），`2` 用法错误（标记为工具错误）。
@@ -362,9 +362,10 @@ Agent 调用 `sure_plan` 得到配额与任务清单，按 Skill 协议补全设
 | `skills/user-demand-research/references/*-research.md` | 七个平台的查询、采样、合规和审计细则 |
 | `skills/user-demand-research/assets/study-template/` | CLI 使用的研究目录模板 |
 | `skills/user-demand-research/assets/*-route-template.csv` | 平台检索与监听路线模板 |
-| `skills/user-demand-research/scripts/sure.py` | plan / init / check / signals / report / connectors 命令 |
+| `skills/user-demand-research/scripts/sure.py` | plan / init / check / signals / report / connectors 命令，外加 stage 薄壳转发 |
 | `skills/user-demand-research/scripts/sure_mcp.py` | 纯标准库 MCP stdio 服务器，暴露同一组命令为 MCP 工具 |
 | `skills/user-demand-research/scripts/connectors/` | 从已完成研究项目收编的第一方采集/清洗工具箱（legacy Reddit 归档采集、Arctic Shift 游标采集、Amazon Reviews 2023 流式与分片下载、通用 clean→screen 阶段）；未登记进连接器注册表，原因见其 README |
+| `skills/user-demand-research/scripts/stages/` | 从已完成研究项目收编的第一方打标/数据集构建/人工审计工具箱（外部导出导入、规则打标、主数据集与月平衡视图、开放词表信号、元数据导出、抽检审计工作簿）；领域词表全部走 taxonomy JSON 配置，唯一第三方依赖 openpyxl（审计工作簿）；规则标签是候选发现，不是金标 |
 | `examples/sample-study/` | 合成数据完整样例 |
 | `tests/` | CLI 正向与失败测试 |
 
